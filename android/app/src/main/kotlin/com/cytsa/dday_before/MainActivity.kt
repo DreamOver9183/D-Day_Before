@@ -3,8 +3,10 @@ package com.cytsa.dday_before
 import android.Manifest
 import android.app.Activity
 import android.content.Intent
+import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.os.Build
+import android.provider.MediaStore
 import androidx.core.app.ActivityCompat
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -12,6 +14,8 @@ import io.flutter.plugin.common.MethodChannel
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.nio.charset.StandardCharsets
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 
 class MainActivity : FlutterActivity() {
     companion object {
@@ -19,12 +23,17 @@ class MainActivity : FlutterActivity() {
         private const val REQUEST_CREATE_BACKUP = 2001
         private const val REQUEST_OPEN_BACKUP = 2002
         private const val REQUEST_POST_NOTIFICATIONS = 2003
+        private const val REQUEST_PICK_BACKGROUND = 2004
     }
 
     private var pendingExportResult: MethodChannel.Result? = null
     private var pendingExportContent: String? = null
     private var pendingImportResult: MethodChannel.Result? = null
     private var pendingPermissionResult: MethodChannel.Result? = null
+    private var pendingPickResult: MethodChannel.Result? = null
+
+    /** Photo decoding and file I/O stay off the UI thread. */
+    private val imageExecutor: ExecutorService = Executors.newSingleThreadExecutor()
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -57,6 +66,90 @@ class MainActivity : FlutterActivity() {
                     DdayAppWidgetProvider.updateAllWidgets(applicationContext)
                     result.success(true)
                 }
+                "pickBackgroundImage" -> {
+                    launchBackgroundPicker(result)
+                }
+
+                "getBackgroundsDir" -> {
+                    result.success(BackgroundImageStore.dir(applicationContext).absolutePath)
+                }
+
+                "cleanupBackgrounds" -> {
+                    val keep = call.argument<List<String>>("keep")?.toSet() ?: emptySet()
+                    imageExecutor.execute {
+                        val deleted = BackgroundImageStore.cleanup(applicationContext, keep)
+                        runOnUiThread { result.success(deleted) }
+                    }
+                }
+
+                "getAppVersion" -> {
+                    val info = packageManager.getPackageInfo(packageName, 0)
+                    val code = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                        info.longVersionCode
+                    } else {
+                        @Suppress("DEPRECATION")
+                        info.versionCode.toLong()
+                    }
+                    result.success(
+                        mapOf("versionName" to (info.versionName ?: ""), "versionCode" to code),
+                    )
+                }
+
+                "canInstallUpdates" -> {
+                    result.success(UpdateInstaller.canInstallPackages(applicationContext))
+                }
+
+                "openInstallPermissionSettings" -> {
+                    UpdateInstaller.openInstallPermissionSettings(this)
+                    result.success(true)
+                }
+
+                "downloadAndInstallUpdate" -> {
+                    val url = call.argument<String>("url")
+                    val sha256 = call.argument<String>("sha256")
+                    if (url == null || sha256 == null) {
+                        result.error(UpdateErrors.BAD_REQUEST, "Missing url or sha256", null)
+                    } else {
+                        imageExecutor.execute {
+                            try {
+                                val apk = UpdateInstaller.download(applicationContext, url, sha256)
+                                runOnUiThread {
+                                    try {
+                                        UpdateInstaller.launchInstaller(this, apk)
+                                        result.success(true)
+                                    } catch (e: UpdateException) {
+                                        result.error(e.code, e.message, null)
+                                    } catch (e: Exception) {
+                                        result.error(UpdateErrors.DOWNLOAD_FAILED, e.message, null)
+                                    }
+                                }
+                            } catch (e: UpdateException) {
+                                runOnUiThread { result.error(e.code, e.message, null) }
+                            }
+                        }
+                    }
+                }
+
+                "debugImportBackground" -> {
+                    // Lets debug-build tests run the real import pipeline without
+                    // driving the system photo picker. Unavailable in release.
+                    val debuggable =
+                        (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
+                    val bytes = call.argument<ByteArray>("bytes")
+                    if (!debuggable || bytes == null) {
+                        result.notImplemented()
+                    } else {
+                        imageExecutor.execute {
+                            try {
+                                val name = BackgroundImageStore.importFromBytes(applicationContext, bytes)
+                                runOnUiThread { result.success(name) }
+                            } catch (e: Exception) {
+                                runOnUiThread { result.error("IMAGE_IMPORT_FAILED", e.message, null) }
+                            }
+                        }
+                    }
+                }
+
                 else -> result.notImplemented()
             }
         }
@@ -98,6 +191,34 @@ class MainActivity : FlutterActivity() {
                 callback.success(granted)
             }
         }
+    }
+
+    private fun launchBackgroundPicker(result: MethodChannel.Result) {
+        if (pendingPickResult != null) {
+            result.error("BUSY", "Another image pick is in progress.", null)
+            return
+        }
+        pendingPickResult = result
+        // The system photo picker needs no storage permission.
+        val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            Intent(MediaStore.ACTION_PICK_IMAGES).apply { type = "image/*" }
+        } else {
+            Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                type = "image/*"
+            }
+        }
+        try {
+            startActivityForResult(intent, REQUEST_PICK_BACKGROUND)
+        } catch (e: Exception) {
+            pendingPickResult = null
+            result.error("PICKER_UNAVAILABLE", e.message, null)
+        }
+    }
+
+    override fun onDestroy() {
+        imageExecutor.shutdown()
+        super.onDestroy()
     }
 
     private fun launchCreateDocument(
@@ -162,6 +283,26 @@ class MainActivity : FlutterActivity() {
                     callback.success(true)
                 } catch (e: Exception) {
                     callback.error("EXPORT_FAILED", e.message, null)
+                }
+            }
+
+            REQUEST_PICK_BACKGROUND -> {
+                val callback = pendingPickResult
+                pendingPickResult = null
+                if (callback == null) return
+
+                val uri = data?.data
+                if (resultCode != Activity.RESULT_OK || uri == null) {
+                    callback.success(null)
+                    return
+                }
+                imageExecutor.execute {
+                    try {
+                        val name = BackgroundImageStore.importFromUri(applicationContext, uri)
+                        runOnUiThread { callback.success(name) }
+                    } catch (e: Exception) {
+                        runOnUiThread { callback.error("IMAGE_IMPORT_FAILED", e.message, null) }
+                    }
                 }
             }
 

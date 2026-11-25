@@ -10,7 +10,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Locks the observable behaviour of v1.0.0 data so refactors cannot silently
-/// change what existing users see. Expected values were produced by v1.0.0.
+/// change what existing users see. Expected values were produced by v1.0.0,
+/// except the count-up label, intentionally changed from `第 N 天` to `N天`.
 void main() {
   final fixture =
       File('test/fixtures/v1_0_0_items.json').readAsStringSync();
@@ -50,7 +51,7 @@ void main() {
       };
       expect(labels, <String, String>{
         'a-exam': 'D-30',
-        'b-couple': '第 365 天',
+        'b-couple': '365天',
         'c-birthday': 'D-95',
         'd-move': 'D+5',
         'e-today': 'D-Day',

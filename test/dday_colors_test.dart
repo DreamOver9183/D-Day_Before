@@ -1,4 +1,5 @@
 import 'package:dday_before/models/dday.dart';
+import 'package:dday_before/theme/app_theme.dart';
 import 'package:dday_before/theme/dday_colors.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -15,21 +16,31 @@ void main() {
 
     test('resolve produces light and dark colors cleanly', () {
       final light = ColorScheme.fromSeed(
-        seedColor: const Color(0xFF3F51B5),
+        seedColor: kAppCoral,
         brightness: Brightness.light,
       );
       final dark = ColorScheme.fromSeed(
-        seedColor: const Color(0xFF3F51B5),
+        seedColor: kAppCoral,
         brightness: Brightness.dark,
       );
 
       final rose = DdayColors.byKey('rose');
-      final lightResolved = rose.resolve(light, isPinned: true, isToday: false);
-      final darkResolved = rose.resolve(dark, isPinned: false, isToday: true);
+      final lightResolved = rose.resolve(light);
+      final darkResolved = rose.resolve(dark);
 
-      expect(lightResolved.accentColor, rose.accentColor);
-      expect(darkResolved.badgeBackground, rose.accentColor);
-      expect(lightResolved.cardBackground, isNot(equals(darkResolved.cardBackground)));
+      expect(lightResolved.accent, rose.accentColor);
+      expect(darkResolved.highlightBackground, rose.accentColor);
+      expect(darkResolved.accent, isNot(equals(rose.accentColor)),
+          reason: 'lifted for contrast on dark backgrounds');
+      expect(lightResolved.iconBackground,
+          isNot(equals(darkResolved.iconBackground)));
+    });
+
+    test('default preset follows the theme primary', () {
+      final light = ColorScheme.fromSeed(seedColor: kAppCoral);
+      final resolved = DdayColors.defaultPreset.resolve(light);
+      expect(resolved.accent, light.primary);
+      expect(resolved.highlightForeground, light.onPrimary);
     });
 
     test('DdayItem copyWith can clear colorKey back to null', () {

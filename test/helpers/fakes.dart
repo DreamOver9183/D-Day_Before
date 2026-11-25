@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:dday_before/data/backup_service.dart';
 import 'package:dday_before/services/native_bridge.dart';
+import 'package:dday_before/services/update_service.dart';
 
 /// Records native calls and can be told to throw or to block until released.
 class FakeNativeBridge implements NativeBridge {
@@ -36,6 +37,70 @@ class FakeNativeBridge implements NativeBridge {
   @override
   Future<void> refreshWidgets() async {
     widgetRefreshCalls++;
+  }
+
+  /// Name returned by the next [pickBackgroundImage] (null = cancelled).
+  String? nextPickedImage;
+  Object? pickError;
+  int pickCalls = 0;
+  String? backgroundsDir;
+  final List<Set<String>> cleanupCalls = <Set<String>>[];
+
+  @override
+  Future<String?> pickBackgroundImage() async {
+    pickCalls++;
+    final error = pickError;
+    if (error != null) throw error;
+    return nextPickedImage;
+  }
+
+  @override
+  Future<String?> backgroundsDirectory() async => backgroundsDir;
+
+  @override
+  Future<void> cleanupBackgrounds(Set<String> keep) async {
+    cleanupCalls.add(keep);
+  }
+
+  AppVersion? appVersion;
+  bool installAllowed = true;
+  int openInstallSettingsCalls = 0;
+  Object? installError;
+  final List<(String, String)> installCalls = <(String, String)>[];
+
+  @override
+  Future<AppVersion?> getAppVersion() async => appVersion;
+
+  @override
+  Future<bool> canInstallUpdates() async => installAllowed;
+
+  @override
+  Future<void> openInstallPermissionSettings() async {
+    openInstallSettingsCalls++;
+  }
+
+  @override
+  Future<void> downloadAndInstallUpdate(String url, String sha256) async {
+    installCalls.add((url, sha256));
+    final error = installError;
+    if (error != null) throw error;
+  }
+}
+
+/// Update source returning a fixed result or error.
+class FakeUpdateSource implements UpdateSource {
+  FakeUpdateSource({this.latest, this.error});
+
+  UpdateInfo? latest;
+  Object? error;
+  int calls = 0;
+
+  @override
+  Future<UpdateInfo?> fetchLatest() async {
+    calls++;
+    final e = error;
+    if (e != null) throw e;
+    return latest;
   }
 }
 

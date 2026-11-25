@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-/// Size presets matching the two badge sizes used in the app.
+/// Size presets for the day count.
 enum CountdownBadgeSize {
   /// Home list and edit preview.
   regular,
@@ -9,24 +9,29 @@ enum CountdownBadgeSize {
   compact,
 }
 
-/// Rounded countdown label such as `D-30`, `D-Day` or `第 12 天`.
+/// The day count (`D-30`, `D-Day`, `365天`) drawn as large colored text.
 ///
-/// Scales down instead of overflowing when the system font is very large.
+/// On the day itself it sits in a filled pill so it stands out. Scales down
+/// instead of overflowing when the system font is very large.
 class CountdownBadge extends StatelessWidget {
   const CountdownBadge({
     super.key,
     required this.text,
-    required this.background,
-    required this.foreground,
+    required this.color,
+    this.highlighted = false,
+    this.highlightBackground,
+    this.highlightForeground,
     this.size = CountdownBadgeSize.regular,
     this.textKey,
   });
 
-  static const double maxWidth = 140;
+  static const double maxWidth = 150;
 
   final String text;
-  final Color background;
-  final Color foreground;
+  final Color color;
+  final bool highlighted;
+  final Color? highlightBackground;
+  final Color? highlightForeground;
   final CountdownBadgeSize size;
   final Key? textKey;
 
@@ -34,31 +39,40 @@ class CountdownBadge extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final compact = size == CountdownBadgeSize.compact;
-    final baseStyle =
-        compact ? theme.textTheme.titleSmall : theme.textTheme.titleMedium;
+    final baseStyle = compact
+        ? theme.textTheme.titleMedium
+        : theme.textTheme.titleLarge;
+    final pill = highlighted && highlightBackground != null;
+
+    Widget label = Text(
+      text,
+      key: textKey,
+      maxLines: 1,
+      style: baseStyle?.copyWith(
+        fontWeight: FontWeight.w800,
+        letterSpacing: -0.3,
+        color: pill ? highlightForeground : color,
+      ),
+    );
+    if (pill) {
+      label = DecoratedBox(
+        decoration: BoxDecoration(
+          color: highlightBackground,
+          borderRadius: BorderRadius.circular(999),
+        ),
+        child: Padding(
+          padding: EdgeInsets.symmetric(
+            horizontal: compact ? 10 : 12,
+            vertical: compact ? 3 : 4,
+          ),
+          child: label,
+        ),
+      );
+    }
 
     return ConstrainedBox(
       constraints: const BoxConstraints(maxWidth: maxWidth),
-      child: FittedBox(
-        fit: BoxFit.scaleDown,
-        child: Container(
-          padding: compact
-              ? const EdgeInsets.symmetric(horizontal: 10, vertical: 6)
-              : const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          decoration: BoxDecoration(
-            color: background,
-            borderRadius: BorderRadius.circular(compact ? 10 : 12),
-          ),
-          child: Text(
-            text,
-            key: textKey,
-            style: baseStyle?.copyWith(
-              fontWeight: FontWeight.bold,
-              color: foreground,
-            ),
-          ),
-        ),
-      ),
+      child: FittedBox(fit: BoxFit.scaleDown, child: label),
     );
   }
 }

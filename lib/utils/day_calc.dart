@@ -88,7 +88,11 @@ DateTime nextYearlyOccurrence(String isoDate, {DateTime? today}) {
   if (!orig.isBefore(todayUtc)) {
     return orig;
   }
-  final thisYear = resolveYearlyDateForYear(todayUtc.year, orig.month, orig.day);
+  final thisYear = resolveYearlyDateForYear(
+    todayUtc.year,
+    orig.month,
+    orig.day,
+  );
   if (!thisYear.isBefore(todayUtc)) {
     return thisYear;
   }
@@ -139,7 +143,7 @@ String formatCountdownFromValues({
   final diff = dayDiff(date, today: today);
   if (countFromOne) {
     if (diff <= 0) {
-      return '第 ${-diff + 1} 天';
+      return '${-diff + 1}天';
     }
     return 'D-$diff';
   }

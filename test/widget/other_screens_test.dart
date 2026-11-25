@@ -103,6 +103,72 @@ void main() {
       semantics.dispose();
     });
 
+    testWidgets('picking a category icon is saved', (tester) async {
+      EditResult? result;
+      _phoneSize(tester);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) => Scaffold(
+              body: Center(
+                child: TextButton(
+                  onPressed: () async {
+                    result = await Navigator.of(context).push(
+                      MaterialPageRoute<EditResult>(
+                        builder: (_) =>
+                            EditScreen(initialItem: _exam, clock: () => _now),
+                      ),
+                    );
+                  },
+                  child: const Text('open'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+
+      final travel = find.byKey(const Key('icon_option_travel'));
+      await tester.scrollUntilVisible(travel, 200,
+          scrollable: find.byType(Scrollable).first);
+      await tester.tap(travel);
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('save_button')));
+      await tester.pumpAndSettle();
+
+      expect(result, isA<EditSaveResult>());
+      expect((result! as EditSaveResult).item.iconKey, 'travel');
+    });
+
+    testWidgets('mode setting defaults to off and switches modes',
+        (tester) async {
+      await openEditor(tester);
+      SegmentedButton<Object?> selector() => tester.widget(
+            find.byKey(const Key('mode_selector')),
+          );
+      expect(selector().selected.single.toString(), endsWith('.off'));
+      expect(find.byKey(const Key('edit_preview_badge')), findsOneWidget);
+      expect(find.text('D-Day'), findsWidgets, reason: 'today, mode off');
+
+      final countFromOne = find.byKey(const Key('mode_count_from_one'));
+      await tester.scrollUntilVisible(countFromOne, 200,
+          scrollable: find.byType(Scrollable).first);
+      await tester.tap(countFromOne);
+      await tester.pumpAndSettle();
+      expect(selector().selected.single.toString(), endsWith('.countFromOne'));
+      expect(find.text('1天'), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('mode_repeat_yearly')));
+      await tester.pumpAndSettle();
+      expect(selector().selected.single.toString(), endsWith('.repeatYearly'));
+
+      await tester.tap(find.byKey(const Key('mode_off')));
+      await tester.pumpAndSettle();
+      expect(selector().selected.single.toString(), endsWith('.off'));
+    });
+
     testWidgets('delete uses the shared confirmation dialog', (tester) async {
       await openEditor(tester, item: _exam);
       await tester.tap(find.byKey(const Key('edit_delete_button')));

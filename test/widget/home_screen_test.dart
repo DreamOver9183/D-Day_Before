@@ -121,7 +121,7 @@ void main() {
         expect(find.byKey(Key('dday_card_$id')), findsOneWidget);
       }
       expect(find.text('D-30'), findsOneWidget);
-      expect(find.text('第 365 天'), findsOneWidget);
+      expect(find.text('365天'), findsOneWidget);
     });
 
     testWidgets('cards expose one summary label and a long-press hint',

@@ -3,9 +3,13 @@ import 'package:flutter/material.dart';
 import '../data/backup_service.dart';
 import '../data/dday_store.dart';
 import '../models/dday.dart';
+import '../services/background_images.dart';
 import '../services/native_bridge.dart';
+import '../services/update_service.dart';
 import '../theme/dday_colors.dart';
 import '../utils/day_calc.dart';
+import '../widgets/soft_card.dart';
+import '../widgets/update_flow.dart';
 import '../utils/dday_sorter.dart';
 import '../widgets/dday_card.dart';
 import '../widgets/dialogs.dart';
@@ -25,6 +29,7 @@ class SettingsScreen extends StatefulWidget {
     required this.backupService,
     required this.fileChannel,
     required this.clock,
+    this.updateFlow,
   });
 
   final DdayStore store;
@@ -38,6 +43,9 @@ class SettingsScreen extends StatefulWidget {
   final BackupFileChannel fileChannel;
   final DateTime Function() clock;
 
+  /// Update checker; null hides the update controls (e.g. in tests).
+  final UpdateFlow? updateFlow;
+
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
 }
@@ -48,6 +56,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   String _reminderTime = '09:00';
   bool _hasPermission = false;
   bool _loading = true;
+  AppVersion? _version;
+  bool _autoUpdate = true;
+  bool _checkingUpdate = false;
   late List<DdayItem> _items;
 
   @override
@@ -63,12 +74,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
       widget.store.loadOngoingNotification(),
       widget.store.loadReminderTime(),
       widget.nativeBridge.hasNotificationPermission(),
+      widget.nativeBridge.getAppVersion(),
+      widget.store.loadUpdateAutoCheck(),
     ]);
     if (!mounted) return;
     setState(() {
       _ongoingEnabled = results[0] as bool;
       _reminderTime = results[1] as String;
       _hasPermission = results[2] as bool;
+      _version = results[3] as AppVersion?;
+      _autoUpdate = results[4] as bool;
       _loading = false;
     });
   }
@@ -83,9 +98,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (!granted) {
         ScaffoldMessenger.of(context)
           ..hideCurrentSnackBar()
-          ..showSnackBar(
-            const SnackBar(content: Text('尚未取得通知權限，請於系統設定開啟')),
-          );
+          ..showSnackBar(const SnackBar(content: Text('尚未取得通知權限，請於系統設定開啟')));
         return;
       }
     }
@@ -137,6 +150,33 @@ class _SettingsScreenState extends State<SettingsScreen> {
     await widget.nativeBridge.syncNotifications();
   }
 
+  Future<void> _checkForUpdate() async {
+    final flow = widget.updateFlow;
+    if (flow == null) return;
+    setState(() => _checkingUpdate = true);
+    void done() {
+      if (mounted && _checkingUpdate) setState(() => _checkingUpdate = false);
+    }
+
+    try {
+      await flow.manualCheck(context, onChecked: done);
+    } finally {
+      done();
+    }
+  }
+
+  Future<void> _toggleAutoUpdate(bool enabled) async {
+    final previous = _autoUpdate;
+    setState(() => _autoUpdate = enabled);
+    try {
+      await widget.store.saveUpdateAutoCheck(enabled);
+    } on StorageWriteException {
+      if (!mounted) return;
+      setState(() => _autoUpdate = previous);
+      showAppSnackBar(context, storageWriteFailedMessage);
+    }
+  }
+
   Future<void> _requestPermission() async {
     final granted = await widget.nativeBridge.requestNotificationPermission();
     if (!mounted) return;
@@ -150,9 +190,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('設定'),
-      ),
+      appBar: AppBar(title: const Text('設定')),
       body: SafeArea(
         child: _loading
             ? const Center(child: CircularProgressIndicator())
@@ -161,12 +199,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 children: [
                   const SectionHeader('通知與提醒'),
                   const SizedBox(height: 8),
-                  Card(
-                    elevation: 0,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      side: BorderSide(color: theme.colorScheme.outlineVariant),
-                    ),
+                  SoftCard(
                     child: Column(
                       children: [
                         ListTile(
@@ -180,15 +213,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         const Divider(height: 1),
                         SwitchListTile(
                           key: const Key('ongoing_notification_switch'),
-                          secondary: const Icon(Icons.notifications_active_outlined),
+                          secondary: const Icon(
+                            Icons.notifications_active_outlined,
+                          ),
                           title: const Text('通知列常駐顯示'),
-                          subtitle: const Text('顯示目前最優先（置頂或最近）的 D-Day'),
                           value: _ongoingEnabled,
                           onChanged: _toggleOngoing,
                         ),
                         const Divider(height: 1),
                         ListTile(
-                          key: const Key('request_notification_permission_button'),
+                          key: const Key(
+                            'request_notification_permission_button',
+                          ),
                           leading: Icon(
                             _hasPermission
                                 ? Icons.verified_user_outlined
@@ -198,38 +234,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 : theme.colorScheme.error,
                           ),
                           title: const Text('Android 通知權限'),
-                          subtitle: Text(_hasPermission ? '已授權' : '未授權，點擊請求授權'),
-                          trailing: _hasPermission
-                              ? null
-                              : const Text('授權'),
+                          subtitle: Text(_hasPermission ? '已授權' : '未授權'),
+                          trailing: _hasPermission ? null : const Text('授權'),
                           onTap: _hasPermission ? null : _requestPermission,
                         ),
                       ],
                     ),
                   ),
                   const SizedBox(height: 10),
-                  Card(
-                    elevation: 0,
-                    color: theme.colorScheme.surfaceContainerHighest,
-                    child: const Padding(
-                      padding: EdgeInsets.all(12),
-                      child: Text(
-                        '提醒限制說明：Android 13+ 需允許通知權限；Android 14+ 常駐通知仍可手動滑掉，'
-                        'APP 會在下次開啟或跨午夜自動補回；重開機後會自動重建排程，'
-                        '部分省電模式可能會略微延後通知。',
-                        style: TextStyle(fontSize: 12),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 20),
                   const SectionHeader('外觀與資料'),
                   const SizedBox(height: 8),
-                  Card(
-                    elevation: 0,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      side: BorderSide(color: theme.colorScheme.outlineVariant),
-                    ),
+                  SoftCard(
                     child: Column(
                       children: [
                         Padding(
@@ -271,7 +286,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         ListTile(
                           leading: const Icon(Icons.import_export),
                           title: const Text('備份與還原'),
-                          subtitle: const Text('匯出或匯入 JSON 備份'),
                           trailing: const Icon(Icons.chevron_right),
                           onTap: () async {
                             await Navigator.of(context).push<void>(
@@ -279,8 +293,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 builder: (_) => BackupScreen(
                                   initialItems: _items,
                                   onSaveItems: (updated) async {
-                                    final saved =
-                                        await widget.onSaveItems(updated);
+                                    final saved = await widget.onSaveItems(
+                                      updated,
+                                    );
                                     if (saved && mounted) {
                                       setState(() => _items = updated);
                                     }
@@ -304,26 +319,43 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   const SizedBox(height: 20),
                   const SectionHeader('關於 D-Day Before'),
                   const SizedBox(height: 8),
-                  Card(
-                    elevation: 0,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      side: BorderSide(color: theme.colorScheme.outlineVariant),
-                    ),
-                    child: const Column(
+                  SoftCard(
+                    child: Column(
                       children: [
                         ListTile(
-                          key: Key('about_version_tile'),
-                          leading: Icon(Icons.info_outline),
-                          title: Text('D-Day Before'),
-                          subtitle: Text('版本 v1.0.0'),
+                          key: const Key('about_version_tile'),
+                          leading: const Icon(Icons.info_outline),
+                          title: const Text('D-Day Before'),
+                          subtitle: Text(
+                            _version == null ? '版本 —' : '版本 v${_version!.name}',
+                          ),
                         ),
-                        Divider(height: 1),
-                        ListTile(
-                          leading: Icon(Icons.lock_outline),
-                          title: Text('離線隱私設計'),
-                          subtitle: Text('完全離線儲存於本機，無帳號、無廣告、不要求網路權限'),
-                        ),
+                        if (widget.updateFlow != null) ...[
+                          const Divider(height: 1),
+                          ListTile(
+                            key: const Key('check_update_button'),
+                            leading: const Icon(Icons.system_update_outlined),
+                            title: const Text('檢查更新'),
+                            trailing: _checkingUpdate
+                                ? const SizedBox(
+                                    width: 20,
+                                    height: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : const Icon(Icons.chevron_right),
+                            onTap: _checkingUpdate ? null : _checkForUpdate,
+                          ),
+                          const Divider(height: 1),
+                          SwitchListTile(
+                            key: const Key('auto_update_switch'),
+                            secondary: const Icon(Icons.autorenew),
+                            title: const Text('自動檢查更新'),
+                            value: _autoUpdate,
+                            onChanged: _toggleAutoUpdate,
+                          ),
+                        ],
                       ],
                     ),
                   ),
@@ -347,16 +379,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
             final repeatText = anniversarySubtitle(top, today: now);
             return repeatText == null ? dateText : '$dateText・$repeatText';
           }();
-    final countdown =
-        top == null ? 'D-Day' : formatCountdown(top, today: now);
+    final countdown = top == null ? 'D-Day' : formatCountdown(top, today: now);
     final colors = DdayColors.byKey(top?.colorKey).resolve(theme.colorScheme);
 
-    return Card(
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: theme.colorScheme.outlineVariant),
-      ),
+    return SoftCard(
       child: Column(
         children: [
           Padding(
@@ -364,6 +390,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             child: DdayCard(
               variant: DdayCardVariant.widgetPreview,
               boxKey: const Key('widget_preview_box'),
+              photo: BackgroundImages.fileFor(top?.backgroundImage),
               title: title,
               subtitle: subtitle,
               badge: countdown,
@@ -376,15 +403,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
             key: const Key('sync_widget_button'),
             leading: const Icon(Icons.widgets_outlined),
             title: const Text('立即同步桌面小工具'),
-            subtitle: const Text('長按手機桌面 → 新增「D-Day Before 倒數卡片」'),
             onTap: () async {
               await widget.nativeBridge.refreshWidgets();
               if (!mounted) return;
               ScaffoldMessenger.of(context)
                 ..hideCurrentSnackBar()
-                ..showSnackBar(
-                  const SnackBar(content: Text('已同步桌面小工具')),
-                );
+                ..showSnackBar(const SnackBar(content: Text('已同步桌面小工具')));
             },
           ),
         ],

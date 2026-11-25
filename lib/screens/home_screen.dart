@@ -6,12 +6,16 @@ import 'package:flutter/services.dart';
 import '../data/backup_service.dart';
 import '../data/dday_store.dart';
 import '../models/dday.dart';
+import '../services/background_images.dart';
 import '../services/native_bridge.dart';
+import '../services/update_service.dart';
 import '../theme/dday_colors.dart';
 import '../utils/day_calc.dart';
 import '../utils/dday_sorter.dart';
 import '../widgets/dday_card.dart';
 import '../widgets/dialogs.dart';
+import '../widgets/soft_card.dart';
+import '../widgets/update_flow.dart';
 import 'backup_screen.dart';
 import 'edit_screen.dart';
 import 'settings_screen.dart';
@@ -25,6 +29,8 @@ class HomeScreen extends StatefulWidget {
     this.nativeBridge = const MethodChannelNativeBridge(),
     this.themeMode = ThemeMode.system,
     this.onThemeModeChanged,
+    this.updateSource = const GitHubUpdateSource(),
+    this.autoCheckUpdates = false,
     DateTime Function()? clock,
   }) : clock = clock ?? DateTime.now;
 
@@ -34,6 +40,8 @@ class HomeScreen extends StatefulWidget {
   final NativeBridge nativeBridge;
   final ThemeMode themeMode;
   final Future<void> Function(ThemeMode mode)? onThemeModeChanged;
+  final UpdateSource updateSource;
+  final bool autoCheckUpdates;
   final DateTime Function() clock;
 
   /// How many times the sorted card list has been (re)computed. Tests use it
@@ -68,6 +76,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   List<DdayItem>? _cacheItems;
   DdaySortMode? _cacheSortMode;
   DateTime? _cacheDay;
+
+  late final UpdateFlow _updateFlow = UpdateFlow(
+    source: widget.updateSource,
+    bridge: widget.nativeBridge,
+    store: widget.store,
+    clock: widget.clock,
+  );
 
   @override
   void initState() {
@@ -108,11 +123,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _loadInitial() async {
-    final results = await Future.wait<Object>([
+    final results = await Future.wait<Object?>([
       widget.store.loadItemsDetailed(),
       widget.store.loadSortMode(),
+      _loadBackgroundsDirectory(),
     ]);
     if (!mounted) return;
+    BackgroundImages.configure(results[2] as String?);
     final loaded = results[0] as LoadItemsResult;
     setState(() {
       _items = loaded.items;
@@ -122,6 +139,32 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _loading = false;
     });
     _syncNativeBestEffort();
+    _cleanupBackgroundsBestEffort();
+    if (widget.autoCheckUpdates) {
+      unawaited(_updateFlow.autoCheck(context));
+    }
+  }
+
+  Future<String?> _loadBackgroundsDirectory() async {
+    try {
+      return await widget.nativeBridge.backgroundsDirectory();
+    } catch (e) {
+      debugPrint('backgroundsDirectory failed: $e');
+      return null;
+    }
+  }
+
+  /// Deletes photos no saved item uses any more (replaced or deleted items).
+  Future<void> _cleanupBackgroundsBestEffort() async {
+    final keep = <String>{
+      for (final item in _lastPersistedItems)
+        if (item.backgroundImage != null) item.backgroundImage!,
+    };
+    try {
+      await widget.nativeBridge.cleanupBackgrounds(keep);
+    } catch (e) {
+      debugPrint('cleanupBackgrounds failed: $e');
+    }
   }
 
   /// Pushes current data to notifications and home widgets. Never throws;
@@ -186,6 +229,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final ok = await done.future;
     if (ok) {
       unawaited(_syncNativeBestEffort());
+      unawaited(_cleanupBackgroundsBestEffort());
     }
     return ok;
   }
@@ -269,6 +313,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           backupService: widget.backupService,
           fileChannel: widget.fileChannel,
           clock: widget.clock,
+          updateFlow: _updateFlow,
         ),
       ),
     );
@@ -294,6 +339,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         builder: (_) => EditScreen(
           initialItem: item,
           clock: widget.clock,
+          nativeBridge: widget.nativeBridge,
         ),
       ),
     );
@@ -405,40 +451,39 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           PopupMenuButton<ThemeMode>(
             key: const Key('theme_menu_button'),
             tooltip: '外觀主題',
-            icon: Icon(
-              switch (widget.themeMode) {
-                ThemeMode.light => Icons.light_mode_outlined,
-                ThemeMode.dark => Icons.dark_mode_outlined,
-                ThemeMode.system => Icons.brightness_auto_outlined,
-              },
-            ),
+            icon: Icon(switch (widget.themeMode) {
+              ThemeMode.light => Icons.light_mode_outlined,
+              ThemeMode.dark => Icons.dark_mode_outlined,
+              ThemeMode.system => Icons.brightness_auto_outlined,
+            }),
             initialValue: widget.themeMode,
             onSelected: (mode) {
               widget.onThemeModeChanged?.call(mode);
             },
-            itemBuilder: (context) => [
-              (ThemeMode.system, '跟隨系統', 'system'),
-              (ThemeMode.light, '淺色模式', 'light'),
-              (ThemeMode.dark, '深色模式', 'dark'),
-            ]
-                .map(
-                  (entry) => PopupMenuItem<ThemeMode>(
-                    key: Key('theme_option_${entry.$3}'),
-                    value: entry.$1,
-                    child: Row(
-                      children: [
-                        Icon(
-                          widget.themeMode == entry.$1 ? Icons.check : null,
-                          size: 18,
-                          color: theme.colorScheme.primary,
+            itemBuilder: (context) =>
+                [
+                      (ThemeMode.system, '跟隨系統', 'system'),
+                      (ThemeMode.light, '淺色模式', 'light'),
+                      (ThemeMode.dark, '深色模式', 'dark'),
+                    ]
+                    .map(
+                      (entry) => PopupMenuItem<ThemeMode>(
+                        key: Key('theme_option_${entry.$3}'),
+                        value: entry.$1,
+                        child: Row(
+                          children: [
+                            Icon(
+                              widget.themeMode == entry.$1 ? Icons.check : null,
+                              size: 18,
+                              color: theme.colorScheme.primary,
+                            ),
+                            const SizedBox(width: 8),
+                            Text(entry.$2),
+                          ],
                         ),
-                        const SizedBox(width: 8),
-                        Text(entry.$2),
-                      ],
-                    ),
-                  ),
-                )
-                .toList(),
+                      ),
+                    )
+                    .toList(),
           ),
           IconButton(
             key: const Key('backup_button'),
@@ -536,10 +581,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               color: theme.colorScheme.outline,
             ),
             const SizedBox(height: 16),
-            Text(
-              '還沒有 D-Day',
-              style: theme.textTheme.titleMedium,
-            ),
+            Text('還沒有 D-Day', style: theme.textTheme.titleMedium),
             const SizedBox(height: 8),
             Text(
               '點擊右下角 ＋ 新增第一個重要日子',
@@ -555,33 +597,69 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Widget _buildList(ThemeData theme, List<DdayCardData> models) {
-    return ListView.separated(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
-      itemCount: models.length,
-      separatorBuilder: (_, _) => const SizedBox(height: 10),
-      itemBuilder: (context, index) {
-        final model = models[index];
-        final item = model.item;
-        final colors = DdayColors.byKey(item.colorKey).resolve(
-          theme.colorScheme,
-          isPinned: item.pinned,
-          isToday: model.isToday,
-        );
-        return DdayCard(
+    // Items without a photo share grouped white cards with divided rows; an
+    // item with a photo becomes its own photo card. Sort order is preserved.
+    // Every item sits in a slot keyed by its position, so when sorting moves
+    // an item its row is rebuilt with fresh gesture recognizers instead of
+    // carrying over the state of the long-press that opened the menu.
+    final children = <Widget>[];
+    var group = <Widget>[];
+    var groupStart = 0;
+
+    void flushGroup() {
+      if (group.isEmpty) return;
+      if (children.isNotEmpty) children.add(const SizedBox(height: 12));
+      children.add(
+        SoftCard(
+          key: ValueKey<String>('group_$groupStart'),
+          radius: 20,
+          child: Column(children: group),
+        ),
+      );
+      group = <Widget>[];
+    }
+
+    for (var i = 0; i < models.length; i++) {
+      final model = models[i];
+      final item = model.item;
+      final card = KeyedSubtree(
+        key: ValueKey<int>(i),
+        child: DdayCard(
           key: Key('dday_card_${item.id}'),
           variant: DdayCardVariant.list,
           title: item.title,
           subtitle: model.subtitle,
           badge: model.badge,
-          colors: colors,
+          colors: DdayColors.byKey(item.colorKey).resolve(theme.colorScheme),
+          iconKey: item.iconKey,
+          photo: model.photo,
           pinned: item.pinned,
-          showAccentBar: item.colorKey != null,
+          highlighted: model.isToday,
           repeatYearly: item.repeatYearly,
           hasReminders: item.reminderDaysBefore.isNotEmpty,
           onTap: () => _openEditor(item),
           onLongPress: () => _showItemActions(item),
-        );
-      },
+        ),
+      );
+
+      if (model.photo != null) {
+        flushGroup();
+        if (children.isNotEmpty) children.add(const SizedBox(height: 12));
+        children.add(card);
+      } else {
+        if (group.isEmpty) {
+          groupStart = i;
+        } else {
+          group.add(const Divider(indent: 68, endIndent: 16));
+        }
+        group.add(card);
+      }
+    }
+    flushGroup();
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
+      children: children,
     );
   }
 }

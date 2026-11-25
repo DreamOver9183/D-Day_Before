@@ -13,7 +13,8 @@ class StorageWriteException implements Exception {
   final Object? cause;
 
   @override
-  String toString() => 'StorageWriteException($key${cause == null ? '' : ': $cause'})';
+  String toString() =>
+      'StorageWriteException($key${cause == null ? '' : ': $cause'})';
 }
 
 /// Result of [DdayStore.loadItemsDetailed].
@@ -32,7 +33,7 @@ class LoadItemsResult {
 /// so future native Android widgets can read the same file directly.
 class DdayStore {
   DdayStore({Future<SharedPreferences> Function()? prefsProvider})
-      : _prefsProvider = prefsProvider ?? SharedPreferences.getInstance;
+    : _prefsProvider = prefsProvider ?? SharedPreferences.getInstance;
 
   static const int currentSchemaVersion = 1;
   static const String itemsKey = 'dday_items_v1';
@@ -41,6 +42,8 @@ class DdayStore {
   static const String themeModeKey = 'dday_theme_mode';
   static const String ongoingNotificationKey = 'dday_ongoing_notification';
   static const String reminderTimeKey = 'dday_reminder_time';
+  static const String updateAutoCheckKey = 'dday_update_auto_check';
+  static const String updateLastCheckKey = 'dday_update_last_check';
 
   final Future<SharedPreferences> Function() _prefsProvider;
 
@@ -212,6 +215,49 @@ class DdayStore {
   }
 
   Future<void> saveReminderTime(String hhMm) async {
-    await _write(reminderTimeKey, (prefs) => prefs.setString(reminderTimeKey, hhMm));
+    await _write(
+      reminderTimeKey,
+      (prefs) => prefs.setString(reminderTimeKey, hhMm),
+    );
+  }
+
+  /// Whether the app checks GitHub for updates by itself (default on).
+  Future<bool> loadUpdateAutoCheck() async {
+    try {
+      final prefs = await _prefsProvider();
+      return prefs.getBool(updateAutoCheckKey) ?? true;
+    } catch (_) {
+      return true;
+    }
+  }
+
+  Future<void> saveUpdateAutoCheck(bool enabled) async {
+    await _write(
+      updateAutoCheckKey,
+      (prefs) => prefs.setBool(updateAutoCheckKey, enabled),
+    );
+  }
+
+  Future<DateTime?> loadUpdateLastCheck() async {
+    try {
+      final prefs = await _prefsProvider();
+      final raw = prefs.getString(updateLastCheckKey);
+      return raw == null ? null : DateTime.tryParse(raw);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Best effort: a failed write only means checking again sooner.
+  Future<void> saveUpdateLastCheck(DateTime time) async {
+    try {
+      await _write(
+        updateLastCheckKey,
+        (prefs) =>
+            prefs.setString(updateLastCheckKey, time.toUtc().toIso8601String()),
+      );
+    } on StorageWriteException {
+      // Ignore.
+    }
   }
 }

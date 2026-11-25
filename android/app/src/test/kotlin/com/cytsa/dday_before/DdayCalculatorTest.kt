@@ -23,7 +23,7 @@ class DdayCalculatorTest {
         assertEquals("D-30", DdayCalculator.formatCountdown(future, today))
 
         val anniv = KotlinDdayItem("2", "交往", "2026-11-25", true, false, "", false, null, emptyList())
-        assertEquals("第 1 天", DdayCalculator.formatCountdown(anniv, today))
+        assertEquals("1天", DdayCalculator.formatCountdown(anniv, today))
 
         val leap = KotlinDdayItem("3", "四年一度", "2024-02-29", false, false, "", true, null, emptyList())
         assertEquals("D-1", DdayCalculator.formatCountdown(leap, SimpleYmd(2025, 2, 27)))

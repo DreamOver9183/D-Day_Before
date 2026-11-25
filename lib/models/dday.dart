@@ -3,6 +3,8 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 
 import '../theme/dday_colors.dart';
+import '../theme/dday_icons.dart';
+import '../services/background_images.dart';
 
 /// Sorting strategies supported by the home list.
 enum DdaySortMode {
@@ -60,6 +62,8 @@ class DdayItem {
     this.repeatYearly = false,
     this.colorKey,
     this.reminderDaysBefore = const <int>[],
+    this.iconKey,
+    this.backgroundImage,
   });
 
   final String id;
@@ -72,6 +76,13 @@ class DdayItem {
   final String? colorKey;
   final List<int> reminderDaysBefore;
 
+  /// Category icon key (see [DdayIcons]); null shows the default icon.
+  final String? iconKey;
+
+  /// File name of the item's background photo in app storage (see
+  /// [BackgroundImages]); null when the item has no photo.
+  final String? backgroundImage;
+
   factory DdayItem.create({
     required String title,
     required String date,
@@ -80,6 +91,8 @@ class DdayItem {
     bool repeatYearly = false,
     String? colorKey,
     List<int> reminderDaysBefore = const <int>[],
+    String? iconKey,
+    String? backgroundImage,
     DateTime? now,
     String? id,
   }) {
@@ -94,6 +107,8 @@ class DdayItem {
       repeatYearly: repeatYearly,
       colorKey: DdayColors.normalizeKey(colorKey),
       reminderDaysBefore: _normalizeReminderDays(reminderDaysBefore),
+      iconKey: DdayIcons.normalizeKey(iconKey),
+      backgroundImage: BackgroundImages.normalizeName(backgroundImage),
     );
   }
 
@@ -107,6 +122,8 @@ class DdayItem {
     bool? repeatYearly,
     Object? colorKey = _unset,
     List<int>? reminderDaysBefore,
+    Object? iconKey = _unset,
+    Object? backgroundImage = _unset,
   }) {
     return DdayItem(
       id: id ?? this.id,
@@ -122,6 +139,12 @@ class DdayItem {
       reminderDaysBefore: reminderDaysBefore != null
           ? _normalizeReminderDays(reminderDaysBefore)
           : this.reminderDaysBefore,
+      iconKey: identical(iconKey, _unset)
+          ? this.iconKey
+          : DdayIcons.normalizeKey(iconKey),
+      backgroundImage: identical(backgroundImage, _unset)
+          ? this.backgroundImage
+          : BackgroundImages.normalizeName(backgroundImage),
     );
   }
 
@@ -137,6 +160,8 @@ class DdayItem {
       if (colorKey != null) 'colorKey': colorKey,
       if (reminderDaysBefore.isNotEmpty)
         'reminderDaysBefore': reminderDaysBefore,
+      if (iconKey != null) 'iconKey': iconKey,
+      if (backgroundImage != null) 'backgroundImage': backgroundImage,
     };
   }
 
@@ -173,15 +198,21 @@ class DdayItem {
       final parsed = DateTime.tryParse(rawCreatedAt);
       normalizedCreatedAt = parsed != null
           ? parsed.toUtc().toIso8601String()
-          : DateTime.fromMillisecondsSinceEpoch(0, isUtc: true).toIso8601String();
+          : DateTime.fromMillisecondsSinceEpoch(
+              0,
+              isUtc: true,
+            ).toIso8601String();
     } else {
-      normalizedCreatedAt =
-          DateTime.fromMillisecondsSinceEpoch(0, isUtc: true).toIso8601String();
+      normalizedCreatedAt = DateTime.fromMillisecondsSinceEpoch(
+        0,
+        isUtc: true,
+      ).toIso8601String();
     }
 
     final repeatYearly = rawRepeatYearly is bool ? rawRepeatYearly : false;
-    final countFromOne =
-        !repeatYearly && rawCountFromOne is bool ? rawCountFromOne : false;
+    final countFromOne = !repeatYearly && rawCountFromOne is bool
+        ? rawCountFromOne
+        : false;
     final reminders = rawReminders is List
         ? _normalizeReminderDays(rawReminders.whereType<int>())
         : const <int>[];
@@ -196,11 +227,16 @@ class DdayItem {
       repeatYearly: repeatYearly,
       colorKey: DdayColors.normalizeKey(rawColorKey),
       reminderDaysBefore: reminders,
+      iconKey: DdayIcons.normalizeKey(raw['iconKey']),
+      backgroundImage: BackgroundImages.normalizeName(raw['backgroundImage']),
     );
   }
 
   static List<int> _normalizeReminderDays(Iterable<int> days) {
-    final unique = <int>{for (final d in days) if (d >= 0) d}.toList()..sort();
+    final unique = <int>{
+      for (final d in days)
+        if (d >= 0) d,
+    }.toList()..sort();
     return List<int>.unmodifiable(unique);
   }
 
@@ -228,19 +264,23 @@ class DdayItem {
         other.createdAt == createdAt &&
         other.repeatYearly == repeatYearly &&
         other.colorKey == colorKey &&
-        listEquals(other.reminderDaysBefore, reminderDaysBefore);
+        listEquals(other.reminderDaysBefore, reminderDaysBefore) &&
+        other.iconKey == iconKey &&
+        other.backgroundImage == backgroundImage;
   }
 
   @override
   int get hashCode => Object.hash(
-        id,
-        title,
-        date,
-        countFromOne,
-        pinned,
-        createdAt,
-        repeatYearly,
-        colorKey,
-        Object.hashAll(reminderDaysBefore),
-      );
+    id,
+    title,
+    date,
+    countFromOne,
+    pinned,
+    createdAt,
+    repeatYearly,
+    colorKey,
+    Object.hashAll(reminderDaysBefore),
+    iconKey,
+    backgroundImage,
+  );
 }

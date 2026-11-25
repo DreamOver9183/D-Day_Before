@@ -56,7 +56,7 @@ void main() {
           countFromOne: true,
           today: today,
         ),
-        '第 1 天',
+        '1天',
       );
       expect(
         formatCountdownFromValues(
@@ -64,7 +64,7 @@ void main() {
           countFromOne: true,
           today: today,
         ),
-        '第 6 天',
+        '6天',
       );
       expect(
         formatCountdownFromValues(
@@ -128,7 +128,7 @@ void main() {
         countFromOne: true,
         now: today,
       );
-      expect(formatCountdown(item, today: today), '第 1 天');
+      expect(formatCountdown(item, today: today), '1天');
     });
   });
 

@@ -24,6 +24,7 @@ data class KotlinDdayItem(
     val repeatYearly: Boolean,
     val colorKey: String?,
     val reminderDaysBefore: List<Int>,
+    val backgroundImage: String? = null,
 )
 
 data class ScheduledReminder(
@@ -41,12 +42,16 @@ data class WidgetSummary(
     val countdown: String,
     val accentColor: Int,
     val isPinned: Boolean,
+    val backgroundImage: String? = null,
 )
 
 object DdayCalculator {
     private val ISO_DATE_REGEX = Regex("""^(\d{4})-(\d{2})-(\d{2})$""")
     private val CREATED_AT_REGEX =
         Regex("""^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d+))?Z$""")
+    /** Default accent (app coral) when an item has no custom color. */
+    val DEFAULT_ACCENT: Int = 0xFFEE5A62.toInt()
+
     private val ZH_WEEKDAYS = arrayOf("一", "二", "三", "四", "五", "六", "日")
     private val COLOR_HEX_MAP = mapOf(
         "indigo" to 0xFF3F51B5.toInt(),
@@ -60,7 +65,7 @@ object DdayCalculator {
     )
 
     fun colorHexForKey(key: String?): Int {
-        return COLOR_HEX_MAP[key] ?: 0xFF3F51B5.toInt()
+        return COLOR_HEX_MAP[key] ?: DEFAULT_ACCENT
     }
 
     fun isLeapYear(year: Int): Boolean {
@@ -160,7 +165,7 @@ object DdayCalculator {
             return if (diff == 0) "D-Day" else "D-$diff"
         }
         if (item.countFromOne) {
-            return if (diff <= 0) "第 ${-diff + 1} 天" else "D-$diff"
+            return if (diff <= 0) "${-diff + 1}天" else "D-$diff"
         }
         return when {
             diff > 0 -> "D-$diff"
@@ -294,6 +299,8 @@ object DdayCalculator {
                         repeatYearly = repeatYearly,
                         colorKey = colorKey,
                         reminderDaysBefore = reminders.sorted(),
+                        backgroundImage = (obj.opt("backgroundImage") as? String)
+                            ?.takeIf { BackgroundImageStore.isValidName(it) },
                     ),
                 )
             }
@@ -409,6 +416,7 @@ object DdayCalculator {
             countdown = countdown,
             accentColor = colorHexForKey(top.colorKey),
             isPinned = top.pinned,
+            backgroundImage = top.backgroundImage,
         )
     }
 }
