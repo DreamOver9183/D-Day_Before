@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../data/backup_service.dart';
 import '../models/dday.dart';
 import '../utils/day_calc.dart';
+import '../widgets/section_header.dart';
 
 class BackupScreen extends StatefulWidget {
   const BackupScreen({
@@ -16,7 +17,7 @@ class BackupScreen extends StatefulWidget {
   }) : clock = clock ?? DateTime.now;
 
   final List<DdayItem> initialItems;
-  final Future<void> Function(List<DdayItem> items) onSaveItems;
+  final Future<bool> Function(List<DdayItem> items) onSaveItems;
   final BackupService backupService;
   final BackupFileChannel fileChannel;
   final DateTime Function() clock;
@@ -86,7 +87,6 @@ class _BackupScreenState extends State<BackupScreen> {
       raw = await widget.fileChannel.importJsonFile();
     } catch (e) {
       _showSnack('讀取檔案失敗：$e');
-      if (mounted) setState(() => _busy = false);
       return;
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -169,8 +169,9 @@ class _BackupScreenState extends State<BackupScreen> {
       parsed.items,
       mode,
     );
-    await widget.onSaveItems(applied.items);
-    if (!mounted) return;
+    // On failure the home screen already restored its list and told the user.
+    final saved = await widget.onSaveItems(applied.items);
+    if (!saved || !mounted) return;
 
     setState(() {
       _items = applied.items;
@@ -206,13 +207,7 @@ class _BackupScreenState extends State<BackupScreen> {
               ),
             ),
             const SizedBox(height: 20),
-            Text(
-              '匯出備份',
-              style: theme.textTheme.titleSmall?.copyWith(
-                color: theme.colorScheme.primary,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
+            const SectionHeader('匯出備份'),
             const SizedBox(height: 8),
             Card(
               elevation: 0,
@@ -241,13 +236,7 @@ class _BackupScreenState extends State<BackupScreen> {
               ),
             ),
             const SizedBox(height: 20),
-            Text(
-              '匯入還原',
-              style: theme.textTheme.titleSmall?.copyWith(
-                color: theme.colorScheme.primary,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
+            const SectionHeader('匯入還原'),
             const SizedBox(height: 8),
             Card(
               elevation: 0,

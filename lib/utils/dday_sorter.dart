@@ -9,32 +9,32 @@ List<DdayItem> sortDdays(
   DateTime? today,
 }) {
   final todayNormalized = localToday(today);
-  final sorted = List<DdayItem>.from(items);
 
-  sorted.sort((a, b) {
-    if (a.pinned != b.pinned) {
-      return a.pinned ? -1 : 1;
+  // Compute every sort key once per item instead of once per comparison.
+  final keyed = <_SortKey>[
+    for (final item in items) _SortKey.of(item, todayNormalized),
+  ];
+
+  keyed.sort((a, b) {
+    if (a.item.pinned != b.item.pinned) {
+      return a.item.pinned ? -1 : 1;
     }
 
     int primary = 0;
     switch (mode) {
       case DdaySortMode.nearest:
-        final diffA = effectiveDayDiff(a, today: todayNormalized);
-        final diffB = effectiveDayDiff(b, today: todayNormalized);
-        final upcomingA = diffA >= 0;
-        final upcomingB = diffB >= 0;
+        final upcomingA = a.diff >= 0;
+        final upcomingB = b.diff >= 0;
         if (upcomingA != upcomingB) {
           primary = upcomingA ? -1 : 1;
         } else if (upcomingA) {
-          primary = diffA.compareTo(diffB);
+          primary = a.diff.compareTo(b.diff);
         } else {
           // Both past: D+1 comes before D+5, D+5 before D+500.
-          primary = (-diffA).compareTo(-diffB);
+          primary = (-a.diff).compareTo(-b.diff);
         }
       case DdaySortMode.dateAsc:
-        final dateA = formatIsoDate(effectiveTargetDate(a, today: todayNormalized));
-        final dateB = formatIsoDate(effectiveTargetDate(b, today: todayNormalized));
-        primary = dateA.compareTo(dateB);
+        primary = a.targetIso.compareTo(b.targetIso);
       case DdaySortMode.createdDesc:
         primary = _compareCreatedAtDesc(a, b);
     }
@@ -47,17 +47,36 @@ List<DdayItem> sortDdays(
     if (tieCreated != 0) {
       return tieCreated;
     }
-    return a.id.compareTo(b.id);
+    return a.item.id.compareTo(b.item.id);
   });
 
-  return sorted;
+  return <DdayItem>[for (final k in keyed) k.item];
 }
 
-int _compareCreatedAtDesc(DdayItem a, DdayItem b) {
-  final parsedA = DateTime.tryParse(a.createdAt)?.toUtc();
-  final parsedB = DateTime.tryParse(b.createdAt)?.toUtc();
+class _SortKey {
+  _SortKey(this.item, this.diff, this.targetIso, this.createdAtUtc);
+
+  factory _SortKey.of(DdayItem item, DateTime today) {
+    final target = effectiveTargetDate(item, today: today);
+    return _SortKey(
+      item,
+      target.difference(today).inDays,
+      formatIsoDate(target),
+      DateTime.tryParse(item.createdAt)?.toUtc(),
+    );
+  }
+
+  final DdayItem item;
+  final int diff;
+  final String targetIso;
+  final DateTime? createdAtUtc;
+}
+
+int _compareCreatedAtDesc(_SortKey a, _SortKey b) {
+  final parsedA = a.createdAtUtc;
+  final parsedB = b.createdAtUtc;
   if (parsedA != null && parsedB != null) {
     return parsedB.compareTo(parsedA);
   }
-  return b.createdAt.compareTo(a.createdAt);
+  return b.item.createdAt.compareTo(a.item.createdAt);
 }

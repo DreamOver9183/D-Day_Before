@@ -1,0 +1,71 @@
+{
+  "schemaVersion": 1,
+  "exportedAt": "2026-11-25T02:00:00.000Z",
+  "items": [
+    {
+      "id": "a-exam",
+      "title": "期末考",
+      "date": "2026-12-25",
+      "countFromOne": false,
+      "pinned": true,
+      "createdAt": "2026-11-01T00:00:00.000Z",
+      "repeatYearly": false,
+      "colorKey": "rose",
+      "reminderDaysBefore": [1, 7]
+    },
+    {
+      "id": "b-couple",
+      "title": "交往紀念日",
+      "date": "2025-11-26",
+      "countFromOne": true,
+      "pinned": false,
+      "createdAt": "2026-10-01T00:00:00.000Z",
+      "repeatYearly": false
+    },
+    {
+      "id": "c-birthday",
+      "title": "生日",
+      "date": "2000-02-29",
+      "countFromOne": false,
+      "pinned": false,
+      "createdAt": "2026-09-01T00:00:00.000Z",
+      "repeatYearly": true,
+      "color": "emerald"
+    },
+    {
+      "id": "d-move",
+      "title": "搬家",
+      "date": "2026-11-20",
+      "countFromOne": false,
+      "pinned": false,
+      "createdAt": "2026-11-10T00:00:00.000Z",
+      "repeatYearly": false,
+      "reminderDaysBefore": [0, 1]
+    },
+    {
+      "id": "e-today",
+      "title": "今天",
+      "date": "2026-11-25",
+      "countFromOne": false,
+      "pinned": true,
+      "createdAt": "2026-11-01T00:00:00.000Z",
+      "repeatYearly": false
+    },
+    {
+      "id": "f-trip",
+      "title": "旅行",
+      "date": "2027-01-10",
+      "countFromOne": false,
+      "pinned": false,
+      "createdAt": "2026-11-20T12:00:00.000Z",
+      "repeatYearly": false,
+      "colorKey": "sky"
+    },
+    {
+      "id": "g-bad",
+      "date": "2026-01-01",
+      "countFromOne": false,
+      "pinned": false
+    }
+  ]
+}

@@ -7,6 +7,9 @@ import '../services/native_bridge.dart';
 import '../theme/dday_colors.dart';
 import '../utils/day_calc.dart';
 import '../utils/dday_sorter.dart';
+import '../widgets/dday_card.dart';
+import '../widgets/dialogs.dart';
+import '../widgets/section_header.dart';
 import 'backup_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -30,7 +33,7 @@ class SettingsScreen extends StatefulWidget {
   final Future<void> Function(ThemeMode mode) onThemeModeChanged;
   final List<DdayItem> currentItems;
   final DdaySortMode sortMode;
-  final Future<void> Function(List<DdayItem> items) onSaveItems;
+  final Future<bool> Function(List<DdayItem> items) onSaveItems;
   final BackupService backupService;
   final BackupFileChannel fileChannel;
   final DateTime Function() clock;
@@ -87,10 +90,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
       }
     }
 
+    final previous = _ongoingEnabled;
     setState(() {
       _ongoingEnabled = enabled;
     });
-    await widget.store.saveOngoingNotification(enabled);
+    try {
+      await widget.store.saveOngoingNotification(enabled);
+    } on StorageWriteException {
+      if (!mounted) return;
+      setState(() {
+        _ongoingEnabled = previous;
+      });
+      showAppSnackBar(context, storageWriteFailedMessage);
+      return;
+    }
     await widget.nativeBridge.syncNotifications();
   }
 
@@ -107,10 +120,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     final formatted =
         '${picked.hour.toString().padLeft(2, '0')}:${picked.minute.toString().padLeft(2, '0')}';
+    final previous = _reminderTime;
     setState(() {
       _reminderTime = formatted;
     });
-    await widget.store.saveReminderTime(formatted);
+    try {
+      await widget.store.saveReminderTime(formatted);
+    } on StorageWriteException {
+      if (!mounted) return;
+      setState(() {
+        _reminderTime = previous;
+      });
+      showAppSnackBar(context, storageWriteFailedMessage);
+      return;
+    }
     await widget.nativeBridge.syncNotifications();
   }
 
@@ -136,13 +159,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             : ListView(
                 padding: const EdgeInsets.all(16),
                 children: [
-                  Text(
-                    '通知與提醒',
-                    style: theme.textTheme.titleSmall?.copyWith(
-                      color: theme.colorScheme.primary,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
+                  const SectionHeader('通知與提醒'),
                   const SizedBox(height: 8),
                   Card(
                     elevation: 0,
@@ -205,13 +222,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                   ),
                   const SizedBox(height: 20),
-                  Text(
-                    '外觀與資料',
-                    style: theme.textTheme.titleSmall?.copyWith(
-                      color: theme.colorScheme.primary,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
+                  const SectionHeader('外觀與資料'),
                   const SizedBox(height: 8),
                   Card(
                     elevation: 0,
@@ -268,10 +279,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 builder: (_) => BackupScreen(
                                   initialItems: _items,
                                   onSaveItems: (updated) async {
-                                    await widget.onSaveItems(updated);
-                                    if (mounted) {
+                                    final saved =
+                                        await widget.onSaveItems(updated);
+                                    if (saved && mounted) {
                                       setState(() => _items = updated);
                                     }
+                                    return saved;
                                   },
                                   backupService: widget.backupService,
                                   fileChannel: widget.fileChannel,
@@ -285,23 +298,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                   ),
                   const SizedBox(height: 20),
-                  Text(
-                    '桌面小工具',
-                    style: theme.textTheme.titleSmall?.copyWith(
-                      color: theme.colorScheme.primary,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
+                  const SectionHeader('桌面小工具'),
                   const SizedBox(height: 8),
                   _buildWidgetPreviewCard(theme),
                   const SizedBox(height: 20),
-                  Text(
-                    '關於 D-Day Before',
-                    style: theme.textTheme.titleSmall?.copyWith(
-                      color: theme.colorScheme.primary,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
+                  const SectionHeader('關於 D-Day Before'),
                   const SizedBox(height: 8),
                   Card(
                     elevation: 0,
@@ -336,9 +337,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final now = widget.clock();
     final sorted = sortDdays(_items, widget.sortMode, today: now);
     final top = sorted.isNotEmpty ? sorted.first : null;
-    final title = top == null
-        ? 'D-Day Before'
-        : (top.pinned ? '📌 ${top.title}' : top.title);
+    final title = top == null ? 'D-Day Before' : top.title;
     final subtitle = top == null
         ? '點擊新增重要日子'
         : () {
@@ -362,69 +361,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
         children: [
           Padding(
             padding: const EdgeInsets.all(14),
-            child: Container(
-              key: const Key('widget_preview_box'),
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: colors.cardBackground,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: colors.borderColor),
-              ),
-              child: Row(
-                children: [
-                  Container(
-                    width: 4,
-                    height: 36,
-                    decoration: BoxDecoration(
-                      color: colors.accentColor,
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          title,
-                          style: theme.textTheme.titleSmall?.copyWith(
-                            fontWeight: FontWeight.bold,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          subtitle,
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: theme.colorScheme.onSurfaceVariant,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 6,
-                    ),
-                    decoration: BoxDecoration(
-                      color: colors.badgeBackground,
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Text(
-                      countdown,
-                      style: theme.textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        color: colors.badgeForeground,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
+            child: DdayCard(
+              variant: DdayCardVariant.widgetPreview,
+              boxKey: const Key('widget_preview_box'),
+              title: title,
+              subtitle: subtitle,
+              badge: countdown,
+              colors: colors,
+              pinned: top?.pinned ?? false,
             ),
           ),
           const Divider(height: 1),

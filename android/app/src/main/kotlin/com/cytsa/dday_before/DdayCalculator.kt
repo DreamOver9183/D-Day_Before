@@ -45,6 +45,8 @@ data class WidgetSummary(
 
 object DdayCalculator {
     private val ISO_DATE_REGEX = Regex("""^(\d{4})-(\d{2})-(\d{2})$""")
+    private val CREATED_AT_REGEX =
+        Regex("""^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d+))?Z$""")
     private val ZH_WEEKDAYS = arrayOf("一", "二", "三", "四", "五", "六", "日")
     private val COLOR_HEX_MAP = mapOf(
         "indigo" to 0xFF3F51B5.toInt(),
@@ -124,10 +126,13 @@ object DdayCalculator {
 
     fun nextYearlyOccurrence(isoDate: String, today: SimpleYmd): SimpleYmd {
         val orig = parseIsoDate(isoDate) ?: return today
+        val todayEpoch = toEpochDay(today.year, today.month, today.day)
+        // 起始日在未來時，先倒數到原始日期（與 Dart 端一致）。
+        if (toEpochDay(orig.year, orig.month, orig.day) >= todayEpoch) {
+            return orig
+        }
         val thisYear = resolveYearlyDateForYear(today.year, orig.month, orig.day)
-        return if (toEpochDay(thisYear.year, thisYear.month, thisYear.day) >=
-            toEpochDay(today.year, today.month, today.day)
-        ) {
+        return if (toEpochDay(thisYear.year, thisYear.month, thisYear.day) >= todayEpoch) {
             thisYear
         } else {
             resolveYearlyDateForYear(today.year + 1, orig.month, orig.day)
@@ -183,42 +188,70 @@ object DdayCalculator {
         return if (years > 0) "每年重複・第 $years 週年" else "每年重複"
     }
 
+    /**
+     * 把 `createdAt` 轉成可直接字串比較的排序鍵：
+     * 符合 `yyyy-MM-ddTHH:mm:ss(.f+)?Z` 時把小數秒正規化為 9 位（不足補 0、超過截斷）；
+     * 空字串或其他格式回傳 `""`（排在最舊），永不拋例外。
+     */
+    fun createdAtSortKey(raw: String): String {
+        val match = CREATED_AT_REGEX.matchEntire(raw) ?: return ""
+        val base = match.groupValues[1]
+        val fraction = match.groupValues[2]
+        val normalized = if (fraction.length >= 9) {
+            fraction.substring(0, 9)
+        } else {
+            fraction.padEnd(9, '0')
+        }
+        return "$base.${normalized}Z"
+    }
+
+    private class SortEntry(
+        val item: KotlinDdayItem,
+        val diff: Int,
+        val targetIso: String,
+        val createdKey: String,
+    )
+
     fun sortDdays(
         items: List<KotlinDdayItem>,
         sortMode: String?,
         today: SimpleYmd,
     ): List<KotlinDdayItem> {
         val mode = sortMode ?: "nearest"
-        return items.sortedWith(Comparator { a, b ->
-            if (a.pinned != b.pinned) {
-                return@Comparator if (a.pinned) -1 else 1
+        val todayEpoch = toEpochDay(today.year, today.month, today.day)
+        val entries = items.map { item ->
+            val target = effectiveTargetDate(item, today)
+            SortEntry(
+                item = item,
+                diff = (toEpochDay(target.year, target.month, target.day) - todayEpoch).toInt(),
+                targetIso = target.toIso(),
+                createdKey = createdAtSortKey(item.createdAt),
+            )
+        }
+        return entries.sortedWith(Comparator { a, b ->
+            if (a.item.pinned != b.item.pinned) {
+                return@Comparator if (a.item.pinned) -1 else 1
             }
 
             val primary = when (mode) {
-                "dateAsc" -> {
-                    val da = effectiveTargetDate(a, today).toIso()
-                    val db = effectiveTargetDate(b, today).toIso()
-                    da.compareTo(db)
-                }
-                "createdDesc" -> b.createdAt.compareTo(a.createdAt)
+                "dateAsc" -> a.targetIso.compareTo(b.targetIso)
+                "createdDesc" -> b.createdKey.compareTo(a.createdKey)
                 else -> {
-                    val diffA = effectiveDayDiff(a, today)
-                    val diffB = effectiveDayDiff(b, today)
-                    val upA = diffA >= 0
-                    val upB = diffB >= 0
+                    val upA = a.diff >= 0
+                    val upB = b.diff >= 0
                     when {
                         upA != upB -> if (upA) -1 else 1
-                        upA -> diffA.compareTo(diffB)
-                        else -> (-diffA).compareTo(-diffB)
+                        upA -> a.diff.compareTo(b.diff)
+                        else -> (-a.diff).compareTo(-b.diff)
                     }
                 }
             }
             if (primary != 0) return@Comparator primary
 
-            val tieCreated = b.createdAt.compareTo(a.createdAt)
+            val tieCreated = b.createdKey.compareTo(a.createdKey)
             if (tieCreated != 0) return@Comparator tieCreated
-            a.id.compareTo(b.id)
-        })
+            a.item.id.compareTo(b.item.id)
+        }).map { it.item }
     }
 
     fun parseItemsJson(rawJson: String?): List<KotlinDdayItem> {
@@ -239,21 +272,14 @@ object DdayCalculator {
                 val countFromOne = !repeatYearly && obj.optBoolean("countFromOne", false)
                 val pinned = obj.optBoolean("pinned", false)
                 val createdAt = obj.optString("createdAt", "1970-01-01T00:00:00.000Z")
-                val rawColor = obj.optString("colorKey", "").trim()
-                val colorKey = if (rawColor.isEmpty() || !COLOR_HEX_MAP.containsKey(rawColor)) {
-                    null
-                } else {
-                    rawColor
-                }
+                val colorKey = parseColorKey(obj)
 
                 val reminders = mutableSetOf<Int>()
                 val remArr = obj.optJSONArray("reminderDaysBefore")
                 if (remArr != null) {
                     for (j in 0 until remArr.length()) {
-                        val days = remArr.optInt(j, -1)
-                        if (days >= 0) {
-                            reminders.add(days)
-                        }
+                        val days = reminderDayOrNull(remArr.opt(j)) ?: continue
+                        reminders.add(days)
                     }
                 }
 
@@ -274,6 +300,26 @@ object DdayCalculator {
             result
         } catch (_: Exception) {
             emptyList()
+        }
+    }
+
+    /** `colorKey` 為 null／缺少／空字串時退回舊欄位 `color`；仍需在 [COLOR_HEX_MAP] 中才採用。 */
+    private fun parseColorKey(obj: JSONObject): String? {
+        val primary = (obj.opt("colorKey") as? String)?.trim().orEmpty()
+        val raw = if (primary.isNotEmpty()) {
+            primary
+        } else {
+            (obj.opt("color") as? String)?.trim().orEmpty()
+        }
+        return if (raw.isNotEmpty() && COLOR_HEX_MAP.containsKey(raw)) raw else null
+    }
+
+    /** 只接受 >= 0 的 Int，或落在 0..Int.MAX_VALUE 的 Long；其他型別一律略過。 */
+    private fun reminderDayOrNull(value: Any?): Int? {
+        return when (value) {
+            is Int -> if (value >= 0) value else null
+            is Long -> if (value in 0L..Int.MAX_VALUE.toLong()) value.toInt() else null
+            else -> null
         }
     }
 

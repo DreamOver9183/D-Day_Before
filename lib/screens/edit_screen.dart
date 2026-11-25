@@ -4,6 +4,24 @@ import 'package:flutter/material.dart';
 import '../models/dday.dart';
 import '../theme/dday_colors.dart';
 import '../utils/day_calc.dart';
+import '../widgets/dday_card.dart';
+import '../widgets/dialogs.dart';
+
+/// Maximum title length in user-perceived characters (grapheme clusters).
+const int maxTitleLength = 50;
+
+/// Validates a D-Day title. Length is counted in characters as the user sees
+/// them (an emoji counts as one), matching the text field's counter.
+String? validateTitle(String? value) {
+  final trimmed = value?.trim() ?? '';
+  if (trimmed.isEmpty) {
+    return '請輸入標題';
+  }
+  if (trimmed.characters.length > maxTitleLength) {
+    return '標題最多 $maxTitleLength 個字';
+  }
+  return null;
+}
 
 sealed class EditResult {
   const EditResult();
@@ -156,30 +174,8 @@ class _EditScreenState extends State<EditScreen> {
   Future<void> _confirmDelete() async {
     final item = widget.initialItem;
     if (item == null) return;
-
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('刪除 D-Day'),
-        content: Text('確定要刪除「${item.title}」嗎？此動作無法復原。'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            style: FilledButton.styleFrom(
-              backgroundColor: Theme.of(context).colorScheme.error,
-              foregroundColor: Theme.of(context).colorScheme.onError,
-            ),
-            child: const Text('刪除'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed == true && mounted) {
+    final confirmed = await showDeleteConfirmDialog(context, item.title);
+    if (confirmed && mounted) {
       _allowPop = true;
       Navigator.of(context).pop(EditDeleteResult(item.id));
     }
@@ -261,89 +257,26 @@ class _EditScreenState extends State<EditScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                Card(
-                  elevation: 0,
-                  color: resolvedColors.cardBackground,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
-                    side: BorderSide(color: resolvedColors.borderColor),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                '即時預覽',
-                                style: theme.textTheme.labelSmall?.copyWith(
-                                  color: resolvedColors.accentColor,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                previewTitle,
-                                style: theme.textTheme.titleMedium?.copyWith(
-                                  fontWeight: FontWeight.w600,
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                previewDisplayDate,
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  color: theme.colorScheme.onSurfaceVariant,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 8,
-                          ),
-                          decoration: BoxDecoration(
-                            color: resolvedColors.badgeBackground,
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Text(
-                            previewBadge,
-                            key: const Key('edit_preview_badge'),
-                            style: theme.textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.bold,
-                              color: resolvedColors.badgeForeground,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+                DdayCard(
+                  variant: DdayCardVariant.editPreview,
+                  title: previewTitle,
+                  subtitle: previewDisplayDate,
+                  badge: previewBadge,
+                  colors: resolvedColors,
+                  badgeKey: const Key('edit_preview_badge'),
                 ),
                 const SizedBox(height: 20),
                 TextFormField(
                   key: const Key('title_field'),
                   controller: _titleController,
-                  maxLength: 50,
+                  maxLength: maxTitleLength,
                   textInputAction: TextInputAction.done,
                   decoration: const InputDecoration(
                     labelText: '標題',
                     hintText: '例如：期末考、交往紀念日',
                     border: OutlineInputBorder(),
                   ),
-                  validator: (value) {
-                    if (value == null || value.trim().isEmpty) {
-                      return '請輸入標題';
-                    }
-                    if (value.trim().length > 50) {
-                      return '標題最多 50 個字';
-                    }
-                    return null;
-                  },
+                  validator: validateTitle,
                 ),
                 const SizedBox(height: 12),
                 Card(

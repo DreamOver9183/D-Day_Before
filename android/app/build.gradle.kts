@@ -32,6 +32,7 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        manifestPlaceholders["appLabel"] = "D-Day Before"
     }
 
     signingConfigs {
@@ -46,6 +47,11 @@ android {
     }
 
     buildTypes {
+        // debug 版使用獨立套件名，E2E 測試的 prefs.clear() 不會洗掉正式版資料。
+        debug {
+            applicationIdSuffix = ".debug"
+            manifestPlaceholders["appLabel"] = "D-Day Before (Debug)"
+        }
         release {
             signingConfig = if (keystorePropertiesFile.exists()) {
                 signingConfigs.getByName("release")
