@@ -265,4 +265,52 @@ void main() {
     final saved = await store.loadItems();
     expect(saved.single.repeatYearly, isTrue);
   });
+
+  testWidgets('v0.4 E2E: card color customization and dark/light theme mode',
+      (WidgetTester tester) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.clear();
+
+    final fixedToday = DateTime(2026, 11, 25, 10, 0);
+    final store = DdayStore();
+
+    await tester.pumpWidget(DdayApp(store: store, clock: () => fixedToday));
+    await tester.pumpAndSettle();
+
+    // Create item with rose color swatch
+    await tester.tap(find.byKey(const Key('fab_add')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('title_field')), '配色卡片');
+    await tester.pumpAndSettle();
+    final roseSwatch = find.byKey(const Key('color_swatch_rose'));
+    await tester.ensureVisible(roseSwatch);
+    await tester.tap(roseSwatch);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('save_button')));
+    await tester.pumpAndSettle();
+
+    final saved = await store.loadItems();
+    expect(saved.single.colorKey, 'rose');
+
+    // Switch to dark mode -> verify MaterialApp brightness & persistence
+    await tester.tap(find.byKey(const Key('theme_menu_button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('theme_option_dark')));
+    await tester.pumpAndSettle();
+
+    expect(await store.loadThemeMode(), ThemeMode.dark);
+    final scaffoldCtx = tester.element(find.byKey(const Key('fab_add')));
+    expect(Theme.of(scaffoldCtx).brightness, Brightness.dark);
+
+    // Switch to light mode
+    await tester.tap(find.byKey(const Key('theme_menu_button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('theme_option_light')));
+    await tester.pumpAndSettle();
+
+    expect(await store.loadThemeMode(), ThemeMode.light);
+    final lightCtx = tester.element(find.byKey(const Key('fab_add')));
+    expect(Theme.of(lightCtx).brightness, Brightness.light);
+  });
 }

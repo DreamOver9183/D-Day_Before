@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../models/dday.dart';
+import '../theme/dday_colors.dart';
 import '../utils/day_calc.dart';
 
 sealed class EditResult {
@@ -37,11 +38,13 @@ class _EditScreenState extends State<EditScreen> {
   late DateTime _selectedDate;
   late bool _countFromOne;
   late bool _repeatYearly;
+  String? _colorKey;
 
   late final String _initialTitle;
   late final String _initialDateIso;
   late final bool _initialCountFromOne;
   late final bool _initialRepeatYearly;
+  late final String? _initialColorKey;
 
   bool _allowPop = false;
 
@@ -56,6 +59,7 @@ class _EditScreenState extends State<EditScreen> {
       _initialDateIso = item.date;
       _initialCountFromOne = item.countFromOne;
       _initialRepeatYearly = item.repeatYearly;
+      _initialColorKey = item.colorKey;
       _selectedDate = parseIsoDate(item.date);
     } else {
       _initialTitle = '';
@@ -63,12 +67,14 @@ class _EditScreenState extends State<EditScreen> {
       _initialDateIso = formatIsoDate(today);
       _initialCountFromOne = false;
       _initialRepeatYearly = false;
+      _initialColorKey = null;
       _selectedDate = today;
     }
     _titleController = TextEditingController(text: _initialTitle);
     _titleController.addListener(_onFormChanged);
     _countFromOne = _initialCountFromOne;
     _repeatYearly = _initialRepeatYearly;
+    _colorKey = _initialColorKey;
   }
 
   @override
@@ -86,7 +92,8 @@ class _EditScreenState extends State<EditScreen> {
     return _titleController.text.trim() != _initialTitle ||
         formatIsoDate(_selectedDate) != _initialDateIso ||
         _countFromOne != _initialCountFromOne ||
-        _repeatYearly != _initialRepeatYearly;
+        _repeatYearly != _initialRepeatYearly ||
+        _colorKey != _initialColorKey;
   }
 
   Future<void> _pickDate() async {
@@ -121,12 +128,14 @@ class _EditScreenState extends State<EditScreen> {
             date: isoDate,
             countFromOne: _repeatYearly ? false : _countFromOne,
             repeatYearly: _repeatYearly,
+            colorKey: _colorKey,
           )
         : DdayItem.create(
             title: title,
             date: isoDate,
             countFromOne: _repeatYearly ? false : _countFromOne,
             repeatYearly: _repeatYearly,
+            colorKey: _colorKey,
             now: widget.clock(),
           );
 
@@ -209,6 +218,10 @@ class _EditScreenState extends State<EditScreen> {
     final previewTitle = _titleController.text.trim().isEmpty
         ? '（未命名項目）'
         : _titleController.text.trim();
+    final resolvedColors = DdayColors.byKey(_colorKey).resolve(
+      theme.colorScheme,
+      isToday: previewBadge == 'D-Day',
+    );
 
     return PopScope(
       canPop: _allowPop || !_hasUnsavedChanges,
@@ -233,12 +246,18 @@ class _EditScreenState extends State<EditScreen> {
         body: SafeArea(
           child: Form(
             key: _formKey,
-            child: ListView(
+            child: SingleChildScrollView(
               padding: const EdgeInsets.all(16),
-              children: [
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
                 Card(
                   elevation: 0,
-                  color: theme.colorScheme.surfaceContainerHighest,
+                  color: resolvedColors.cardBackground,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                    side: BorderSide(color: resolvedColors.borderColor),
+                  ),
                   child: Padding(
                     padding: const EdgeInsets.all(16),
                     child: Row(
@@ -250,7 +269,7 @@ class _EditScreenState extends State<EditScreen> {
                               Text(
                                 '即時預覽',
                                 style: theme.textTheme.labelSmall?.copyWith(
-                                  color: theme.colorScheme.primary,
+                                  color: resolvedColors.accentColor,
                                 ),
                               ),
                               const SizedBox(height: 4),
@@ -273,12 +292,22 @@ class _EditScreenState extends State<EditScreen> {
                           ),
                         ),
                         const SizedBox(width: 12),
-                        Text(
-                          previewBadge,
-                          key: const Key('edit_preview_badge'),
-                          style: theme.textTheme.headlineSmall?.copyWith(
-                            fontWeight: FontWeight.bold,
-                            color: theme.colorScheme.primary,
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
+                          decoration: BoxDecoration(
+                            color: resolvedColors.badgeBackground,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Text(
+                            previewBadge,
+                            key: const Key('edit_preview_badge'),
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.bold,
+                              color: resolvedColors.badgeForeground,
+                            ),
                           ),
                         ),
                       ],
@@ -366,8 +395,83 @@ class _EditScreenState extends State<EditScreen> {
                     },
                   ),
                 ),
+                const SizedBox(height: 12),
+                Card(
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    side: BorderSide(color: theme.colorScheme.outlineVariant),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '卡片配色',
+                          style: theme.textTheme.titleMedium,
+                        ),
+                        const SizedBox(height: 12),
+                        Wrap(
+                          spacing: 12,
+                          runSpacing: 12,
+                          children: DdayColors.presets.map((preset) {
+                            final selected = _colorKey == preset.key;
+                            final swatchColor = preset.key == null
+                                ? theme.colorScheme.primaryContainer
+                                : preset.accentColor;
+                            final checkColor = preset.key == null
+                                ? theme.colorScheme.onPrimaryContainer
+                                : Colors.white;
+                            return Semantics(
+                              label: '配色：${preset.label}',
+                              selected: selected,
+                              button: true,
+                              child: InkWell(
+                                key: Key(
+                                  'color_swatch_${preset.key ?? 'default'}',
+                                ),
+                                borderRadius: BorderRadius.circular(20),
+                                onTap: () {
+                                  setState(() {
+                                    _colorKey = preset.key;
+                                  });
+                                },
+                                child: Tooltip(
+                                  message: preset.label,
+                                  child: Container(
+                                    width: 36,
+                                    height: 36,
+                                    decoration: BoxDecoration(
+                                      color: swatchColor,
+                                      shape: BoxShape.circle,
+                                      border: Border.all(
+                                        color: selected
+                                            ? theme.colorScheme.onSurface
+                                            : theme.colorScheme.outlineVariant,
+                                        width: selected ? 2.5 : 1,
+                                      ),
+                                    ),
+                                    child: selected
+                                        ? Icon(
+                                            Icons.check,
+                                            size: 18,
+                                            color: checkColor,
+                                          )
+                                        : null,
+                                  ),
+                                ),
+                              ),
+                            );
+                          }).toList(),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
                 const SizedBox(height: 16),
-              ],
+                ],
+              ),
             ),
           ),
         ),

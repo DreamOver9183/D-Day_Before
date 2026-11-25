@@ -1,5 +1,7 @@
 import 'dart:math';
 
+import '../theme/dday_colors.dart';
+
 /// Sorting strategies supported by the home list.
 enum DdaySortMode {
   nearest('nearest', '距離今天最近'),
@@ -42,6 +44,8 @@ String generateUuidV4() {
 
 final RegExp _isoDatePattern = RegExp(r'^(\d{4})-(\d{2})-(\d{2})$');
 
+const Object _unset = Object();
+
 /// Immutable D-Day entry stored in local JSON.
 class DdayItem {
   const DdayItem({
@@ -52,6 +56,7 @@ class DdayItem {
     required this.pinned,
     required this.createdAt,
     this.repeatYearly = false,
+    this.colorKey,
   });
 
   final String id;
@@ -61,6 +66,7 @@ class DdayItem {
   final bool pinned;
   final String createdAt; // UTC ISO-8601 ending in Z
   final bool repeatYearly;
+  final String? colorKey;
 
   factory DdayItem.create({
     required String title,
@@ -68,6 +74,7 @@ class DdayItem {
     bool countFromOne = false,
     bool pinned = false,
     bool repeatYearly = false,
+    String? colorKey,
     DateTime? now,
     String? id,
   }) {
@@ -80,6 +87,7 @@ class DdayItem {
       pinned: pinned,
       createdAt: timestamp,
       repeatYearly: repeatYearly,
+      colorKey: DdayColors.normalizeKey(colorKey),
     );
   }
 
@@ -91,6 +99,7 @@ class DdayItem {
     bool? pinned,
     String? createdAt,
     bool? repeatYearly,
+    Object? colorKey = _unset,
   }) {
     return DdayItem(
       id: id ?? this.id,
@@ -100,6 +109,9 @@ class DdayItem {
       pinned: pinned ?? this.pinned,
       createdAt: createdAt ?? this.createdAt,
       repeatYearly: repeatYearly ?? this.repeatYearly,
+      colorKey: identical(colorKey, _unset)
+          ? this.colorKey
+          : DdayColors.normalizeKey(colorKey),
     );
   }
 
@@ -112,6 +124,7 @@ class DdayItem {
       'pinned': pinned,
       'createdAt': createdAt,
       'repeatYearly': repeatYearly,
+      if (colorKey != null) 'colorKey': colorKey,
     };
   }
 
@@ -140,6 +153,7 @@ class DdayItem {
     final rawPinned = raw['pinned'];
     final rawRepeatYearly = raw['repeatYearly'];
     final rawCreatedAt = raw['createdAt'];
+    final rawColorKey = raw['colorKey'] ?? raw['color'];
 
     String normalizedCreatedAt;
     if (rawCreatedAt is String) {
@@ -164,6 +178,7 @@ class DdayItem {
       pinned: rawPinned is bool ? rawPinned : false,
       createdAt: normalizedCreatedAt,
       repeatYearly: repeatYearly,
+      colorKey: DdayColors.normalizeKey(rawColorKey),
     );
   }
 
@@ -189,7 +204,8 @@ class DdayItem {
         other.countFromOne == countFromOne &&
         other.pinned == pinned &&
         other.createdAt == createdAt &&
-        other.repeatYearly == repeatYearly;
+        other.repeatYearly == repeatYearly &&
+        other.colorKey == colorKey;
   }
 
   @override
@@ -201,5 +217,6 @@ class DdayItem {
         pinned,
         createdAt,
         repeatYearly,
+        colorKey,
       );
 }

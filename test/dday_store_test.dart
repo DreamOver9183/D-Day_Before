@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:dday_before/data/dday_store.dart';
 import 'package:dday_before/models/dday.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -89,6 +90,28 @@ void main() {
 
       await store.saveSortMode(DdaySortMode.createdDesc);
       expect(await DdayStore().loadSortMode(), DdaySortMode.createdDesc);
+    });
+
+    test('themeMode persists across store instances', () async {
+      final store = DdayStore();
+      expect(await store.loadThemeMode(), ThemeMode.system);
+
+      await store.saveThemeMode(ThemeMode.dark);
+      expect(await DdayStore().loadThemeMode(), ThemeMode.dark);
+
+      await store.saveThemeMode(ThemeMode.light);
+      expect(await DdayStore().loadThemeMode(), ThemeMode.light);
+    });
+
+    test('unknown colorKey in JSON falls back to null', () {
+      final parsed = DdayItem.tryFromJson(<String, dynamic>{
+        'id': 'c1',
+        'title': 'ColorTest',
+        'date': '2026-12-25',
+        'colorKey': 'neon_pink_unknown',
+      });
+      expect(parsed, isNotNull);
+      expect(parsed!.colorKey, isNull);
     });
 
     test('generateUuidV4 generates distinct v4 UUIDs', () {

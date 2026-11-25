@@ -102,11 +102,12 @@ void main() {
       expect(result.total, 1);
     });
 
-    test('exportJson & parseBackupJson preserve repeatYearly', () {
-      final repeating = item1.copyWith(repeatYearly: true);
+    test('exportJson & parseBackupJson preserve repeatYearly and colorKey', () {
+      final repeating = item1.copyWith(repeatYearly: true, colorKey: 'rose');
       final raw = service.exportJson(<DdayItem>[repeating]);
       final parsed = service.parseBackupJson(raw);
       expect(parsed.items.single.repeatYearly, isTrue);
+      expect(parsed.items.single.colorKey, 'rose');
     });
   });
 }

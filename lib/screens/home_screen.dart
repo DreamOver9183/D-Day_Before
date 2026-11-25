@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../data/backup_service.dart';
 import '../data/dday_store.dart';
 import '../models/dday.dart';
+import '../theme/dday_colors.dart';
 import '../utils/day_calc.dart';
 import '../utils/dday_sorter.dart';
 import 'backup_screen.dart';
@@ -16,12 +17,16 @@ class HomeScreen extends StatefulWidget {
     required this.store,
     this.backupService = const BackupService(),
     this.fileChannel = const MethodChannelBackupFileChannel(),
+    this.themeMode = ThemeMode.system,
+    this.onThemeModeChanged,
     DateTime Function()? clock,
   }) : clock = clock ?? DateTime.now;
 
   final DdayStore store;
   final BackupService backupService;
   final BackupFileChannel fileChannel;
+  final ThemeMode themeMode;
+  final Future<void> Function(ThemeMode mode)? onThemeModeChanged;
   final DateTime Function() clock;
 
   @override
@@ -226,6 +231,44 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       appBar: AppBar(
         title: const Text('D-Day Before'),
         actions: [
+          PopupMenuButton<ThemeMode>(
+            key: const Key('theme_menu_button'),
+            tooltip: '外觀主題',
+            icon: Icon(
+              switch (widget.themeMode) {
+                ThemeMode.light => Icons.light_mode_outlined,
+                ThemeMode.dark => Icons.dark_mode_outlined,
+                ThemeMode.system => Icons.brightness_auto_outlined,
+              },
+            ),
+            initialValue: widget.themeMode,
+            onSelected: (mode) {
+              widget.onThemeModeChanged?.call(mode);
+            },
+            itemBuilder: (context) => [
+              (ThemeMode.system, '跟隨系統', 'system'),
+              (ThemeMode.light, '淺色模式', 'light'),
+              (ThemeMode.dark, '深色模式', 'dark'),
+            ]
+                .map(
+                  (entry) => PopupMenuItem<ThemeMode>(
+                    key: Key('theme_option_${entry.$3}'),
+                    value: entry.$1,
+                    child: Row(
+                      children: [
+                        Icon(
+                          widget.themeMode == entry.$1 ? Icons.check : null,
+                          size: 18,
+                          color: theme.colorScheme.primary,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(entry.$2),
+                      ],
+                    ),
+                  ),
+                )
+                .toList(),
+          ),
           IconButton(
             key: const Key('backup_button'),
             tooltip: '備份與還原',
@@ -305,18 +348,19 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         effectiveTargetDate(item, today: now),
                       );
                       final repeatNote = anniversarySubtitle(item, today: now);
+                      final colors = DdayColors.byKey(item.colorKey).resolve(
+                        theme.colorScheme,
+                        isPinned: item.pinned,
+                        isToday: isToday,
+                      );
 
                       return Card(
                         key: Key('dday_card_${item.id}'),
                         elevation: 0,
-                        color: theme.colorScheme.surfaceContainerLow,
+                        color: colors.cardBackground,
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(16),
-                          side: BorderSide(
-                            color: item.pinned
-                                ? theme.colorScheme.primary.withValues(alpha: 0.45)
-                                : theme.colorScheme.outlineVariant,
-                          ),
+                          side: BorderSide(color: colors.borderColor),
                         ),
                         child: InkWell(
                           borderRadius: BorderRadius.circular(16),
@@ -329,6 +373,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                             ),
                             child: Row(
                               children: [
+                                if (item.colorKey != null) ...[
+                                  Container(
+                                    width: 4,
+                                    height: 40,
+                                    decoration: BoxDecoration(
+                                      color: colors.accentColor,
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                ],
                                 Expanded(
                                   child: Column(
                                     crossAxisAlignment:
@@ -340,7 +395,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                                             Icon(
                                               Icons.push_pin,
                                               size: 16,
-                                              color: theme.colorScheme.primary,
+                                              color: colors.accentColor,
                                             ),
                                             const SizedBox(width: 6),
                                           ],
@@ -364,7 +419,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                                             Icon(
                                               Icons.repeat,
                                               size: 14,
-                                              color: theme.colorScheme.primary,
+                                              color: colors.accentColor,
                                             ),
                                             const SizedBox(width: 4),
                                           ],
@@ -394,9 +449,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                                     vertical: 8,
                                   ),
                                   decoration: BoxDecoration(
-                                    color: isToday
-                                        ? theme.colorScheme.primary
-                                        : theme.colorScheme.primaryContainer,
+                                    color: colors.badgeBackground,
                                     borderRadius: BorderRadius.circular(12),
                                   ),
                                   child: Text(
@@ -404,10 +457,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                                     style:
                                         theme.textTheme.titleMedium?.copyWith(
                                       fontWeight: FontWeight.bold,
-                                      color: isToday
-                                          ? theme.colorScheme.onPrimary
-                                          : theme.colorScheme
-                                              .onPrimaryContainer,
+                                      color: colors.badgeForeground,
                                     ),
                                   ),
                                 ),
