@@ -1,8 +1,10 @@
+import 'package:dday_before/data/backup_service.dart';
 import 'package:dday_before/data/dday_store.dart';
 import 'package:dday_before/main.dart';
 import 'package:dday_before/models/dday.dart';
 import 'package:dday_before/utils/day_calc.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -51,7 +53,6 @@ void main() {
     await tester.enterText(find.byKey(const Key('title_field')), '期末考');
     await tester.pumpAndSettle();
 
-    // Open zh_TW date picker and advance to next month -> pick day 25
     await tester.tap(find.byKey(const Key('date_picker_tile')));
     await tester.pumpAndSettle();
     final nextMonthBtn = find.byTooltip('下個月');
@@ -96,7 +97,6 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('期末考'), findsOneWidget);
 
-    // Edit and save
     await tester.tap(find.text('期末考'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byKey(const Key('title_field')), '期末考複習');
@@ -105,7 +105,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('期末考複習'), findsOneWidget);
 
-    // 8. Verify persisted data in SharedPreferences survives widget rebuild
+    // 8. Verify persisted data in SharedPreferences
     final savedItems = await store.loadItems();
     expect(savedItems, hasLength(2));
     expect(
@@ -122,7 +122,7 @@ void main() {
       isTrue,
     );
 
-    // 9. Delete one item via long-press dialog and the other via edit screen
+    // 9. Delete both items
     await tester.longPress(find.text('交往紀念日'));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('action_delete')));
@@ -140,5 +140,87 @@ void main() {
 
     expect(find.text('還沒有 D-Day'), findsOneWidget);
     expect(await store.loadItems(), isEmpty);
+  });
+
+  testWidgets('v0.2 E2E: backup export to clipboard, invalid json, merge & overwrite import',
+      (WidgetTester tester) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.clear();
+
+    final fixedToday = DateTime(2026, 11, 25, 10, 0);
+    final store = DdayStore();
+    final existing = DdayItem.create(
+      id: 'local-1',
+      title: '本地項目',
+      date: '2026-12-01',
+      now: fixedToday,
+    );
+    await store.saveItems(<DdayItem>[existing]);
+
+    await tester.pumpWidget(DdayApp(store: store, clock: () => fixedToday));
+    await tester.pumpAndSettle();
+    expect(find.text('本地項目'), findsOneWidget);
+
+    // Open BackupScreen
+    await tester.tap(find.byKey(const Key('backup_button')));
+    await tester.pumpAndSettle();
+    expect(find.text('目前共有 1 筆 D-Day'), findsOneWidget);
+
+    // Copy backup JSON to clipboard
+    await tester.tap(find.byKey(const Key('export_clipboard_button')));
+    await tester.pumpAndSettle();
+    final clipData = await Clipboard.getData(Clipboard.kTextPlain);
+    expect(clipData?.text, isNotNull);
+    expect(clipData!.text, contains('本地項目'));
+
+    // Invalid JSON shows error dialog
+    await tester.tap(find.byKey(const Key('import_paste_button')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('import_json_field')), '{bad');
+    await tester.tap(find.byKey(const Key('import_parse_button')));
+    await tester.pumpAndSettle();
+    expect(find.text('無法匯入備份'), findsOneWidget);
+    await tester.tap(find.text('確定'));
+    await tester.pumpAndSettle();
+
+    // Merge import a backup containing another item
+    final incomingJson = const BackupService().exportJson(<DdayItem>[
+      DdayItem.create(
+        id: 'backup-2',
+        title: '匯入的跨年',
+        date: '2027-01-01',
+        now: fixedToday,
+      ),
+    ]);
+    await tester.tap(find.byKey(const Key('import_paste_button')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('import_json_field')),
+      incomingJson,
+    );
+    await tester.tap(find.byKey(const Key('import_parse_button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('import_mode_merge')));
+    await tester.pumpAndSettle();
+    expect(find.text('目前共有 2 筆 D-Day'), findsOneWidget);
+
+    // Overwrite import using original clipboard backup (only 1 item)
+    await tester.tap(find.byKey(const Key('import_paste_button')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('import_json_field')),
+      clipData.text!,
+    );
+    await tester.tap(find.byKey(const Key('import_parse_button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('import_mode_overwrite')));
+    await tester.pumpAndSettle();
+    expect(find.text('目前共有 1 筆 D-Day'), findsOneWidget);
+
+    // Back to HomeScreen and verify items updated
+    await tester.tap(find.byType(BackButton));
+    await tester.pumpAndSettle();
+    expect(find.text('本地項目'), findsOneWidget);
+    expect(find.text('匯入的跨年'), findsNothing);
   });
 }

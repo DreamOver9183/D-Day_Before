@@ -2,20 +2,26 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../data/backup_service.dart';
 import '../data/dday_store.dart';
 import '../models/dday.dart';
 import '../utils/day_calc.dart';
 import '../utils/dday_sorter.dart';
+import 'backup_screen.dart';
 import 'edit_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({
     super.key,
     required this.store,
+    this.backupService = const BackupService(),
+    this.fileChannel = const MethodChannelBackupFileChannel(),
     DateTime Function()? clock,
   }) : clock = clock ?? DateTime.now;
 
   final DdayStore store;
+  final BackupService backupService;
+  final BackupFileChannel fileChannel;
   final DateTime Function() clock;
 
   @override
@@ -90,6 +96,20 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _sortMode = mode;
     });
     await widget.store.saveSortMode(mode);
+  }
+
+  Future<void> _openBackup() async {
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => BackupScreen(
+          initialItems: _items,
+          onSaveItems: _persistItems,
+          backupService: widget.backupService,
+          fileChannel: widget.fileChannel,
+          clock: widget.clock,
+        ),
+      ),
+    );
   }
 
   Future<void> _openEditor([DdayItem? item]) async {
@@ -206,6 +226,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       appBar: AppBar(
         title: const Text('D-Day Before'),
         actions: [
+          IconButton(
+            key: const Key('backup_button'),
+            tooltip: '備份與還原',
+            icon: const Icon(Icons.import_export),
+            onPressed: _openBackup,
+          ),
           PopupMenuButton<DdaySortMode>(
             key: const Key('sort_menu_button'),
             tooltip: '排序方式',
