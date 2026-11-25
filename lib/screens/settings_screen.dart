@@ -294,6 +294,38 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   const SizedBox(height: 8),
                   _buildWidgetPreviewCard(theme),
+                  const SizedBox(height: 20),
+                  Text(
+                    '關於 D-Day Before',
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      color: theme.colorScheme.primary,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Card(
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      side: BorderSide(color: theme.colorScheme.outlineVariant),
+                    ),
+                    child: const Column(
+                      children: [
+                        ListTile(
+                          key: Key('about_version_tile'),
+                          leading: Icon(Icons.info_outline),
+                          title: Text('D-Day Before'),
+                          subtitle: Text('版本 v1.0.0'),
+                        ),
+                        Divider(height: 1),
+                        ListTile(
+                          leading: Icon(Icons.lock_outline),
+                          title: Text('離線隱私設計'),
+                          subtitle: Text('完全離線儲存於本機，無帳號、無廣告、不要求網路權限'),
+                        ),
+                      ],
+                    ),
+                  ),
                 ],
               ),
       ),

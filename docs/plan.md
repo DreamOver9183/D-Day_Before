@@ -42,7 +42,7 @@ flowchart LR
 | v0.4 | 外觀自訂 | 每筆 D-Day 自訂卡片配色、深色／淺色模式；背景圖不併入純 JSON 備份，列為選配或延後 | 已完成 |
 | v0.5 | 提醒通知 | 當天／前 N 天提醒通知、通知列常駐顯示（註：需處理 Android 13+ `POST_NOTIFICATIONS` 動態權限、Android 14+ 常駐通知可被手動滑掉、重開機 `RECEIVE_BOOT_COMPLETED` 重建排程與省電限制） | 已完成 |
 | v0.6 | 桌面小工具 | 主畫面 Widget，由原生 Kotlin `AppWidgetProvider` 直接讀取 XML `SharedPreferences` 並重算天數 | 已完成 |
-| v1.0 | 穩定版 | 專屬 APP 圖示、啟動頁與細節打磨、正式 release APK | 本次實作 |
+| v1.0 | 穩定版 | 專屬 APP 圖示、啟動頁與細節打磨、正式 release APK | 已完成 |
 
 > [!NOTE]
 > 已將「資料安全（JSON 備份還原）」提前至 **v0.2**，確保開始長期記錄真實資料後，換機或重裝都有可靠的還原機制。

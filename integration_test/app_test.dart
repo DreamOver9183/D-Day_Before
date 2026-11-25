@@ -439,5 +439,11 @@ void main() {
     await tester.tap(syncBtn);
     await tester.pumpAndSettle();
     expect(find.text('已同步桌面小工具'), findsOneWidget);
+
+    // v1.0 About section check
+    final aboutTile = find.byKey(const Key('about_version_tile'));
+    await tester.ensureVisible(aboutTile);
+    expect(find.text('版本 v1.0.0'), findsOneWidget);
+    expect(find.text('完全離線儲存於本機，無帳號、無廣告、不要求網路權限'), findsOneWidget);
   });
 }
