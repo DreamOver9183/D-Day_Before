@@ -51,6 +51,7 @@ class DdayItem {
     required this.countFromOne,
     required this.pinned,
     required this.createdAt,
+    this.repeatYearly = false,
   });
 
   final String id;
@@ -59,12 +60,14 @@ class DdayItem {
   final bool countFromOne;
   final bool pinned;
   final String createdAt; // UTC ISO-8601 ending in Z
+  final bool repeatYearly;
 
   factory DdayItem.create({
     required String title,
     required String date,
     bool countFromOne = false,
     bool pinned = false,
+    bool repeatYearly = false,
     DateTime? now,
     String? id,
   }) {
@@ -73,9 +76,10 @@ class DdayItem {
       id: id ?? generateUuidV4(),
       title: title.trim(),
       date: date,
-      countFromOne: countFromOne,
+      countFromOne: repeatYearly ? false : countFromOne,
       pinned: pinned,
       createdAt: timestamp,
+      repeatYearly: repeatYearly,
     );
   }
 
@@ -86,6 +90,7 @@ class DdayItem {
     bool? countFromOne,
     bool? pinned,
     String? createdAt,
+    bool? repeatYearly,
   }) {
     return DdayItem(
       id: id ?? this.id,
@@ -94,6 +99,7 @@ class DdayItem {
       countFromOne: countFromOne ?? this.countFromOne,
       pinned: pinned ?? this.pinned,
       createdAt: createdAt ?? this.createdAt,
+      repeatYearly: repeatYearly ?? this.repeatYearly,
     );
   }
 
@@ -105,6 +111,7 @@ class DdayItem {
       'countFromOne': countFromOne,
       'pinned': pinned,
       'createdAt': createdAt,
+      'repeatYearly': repeatYearly,
     };
   }
 
@@ -131,6 +138,7 @@ class DdayItem {
 
     final rawCountFromOne = raw['countFromOne'];
     final rawPinned = raw['pinned'];
+    final rawRepeatYearly = raw['repeatYearly'];
     final rawCreatedAt = raw['createdAt'];
 
     String normalizedCreatedAt;
@@ -144,13 +152,18 @@ class DdayItem {
           DateTime.fromMillisecondsSinceEpoch(0, isUtc: true).toIso8601String();
     }
 
+    final repeatYearly = rawRepeatYearly is bool ? rawRepeatYearly : false;
+    final countFromOne =
+        !repeatYearly && rawCountFromOne is bool ? rawCountFromOne : false;
+
     return DdayItem(
       id: rawId.trim(),
       title: rawTitle.trim(),
       date: rawDate,
-      countFromOne: rawCountFromOne is bool ? rawCountFromOne : false,
+      countFromOne: countFromOne,
       pinned: rawPinned is bool ? rawPinned : false,
       createdAt: normalizedCreatedAt,
+      repeatYearly: repeatYearly,
     );
   }
 
@@ -175,10 +188,18 @@ class DdayItem {
         other.date == date &&
         other.countFromOne == countFromOne &&
         other.pinned == pinned &&
-        other.createdAt == createdAt;
+        other.createdAt == createdAt &&
+        other.repeatYearly == repeatYearly;
   }
 
   @override
-  int get hashCode =>
-      Object.hash(id, title, date, countFromOne, pinned, createdAt);
+  int get hashCode => Object.hash(
+        id,
+        title,
+        date,
+        countFromOne,
+        pinned,
+        createdAt,
+        repeatYearly,
+      );
 }

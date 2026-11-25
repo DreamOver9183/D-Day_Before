@@ -223,4 +223,46 @@ void main() {
     expect(find.text('本地項目'), findsOneWidget);
     expect(find.text('匯入的跨年'), findsNothing);
   });
+
+  testWidgets('v0.3 E2E: yearly repeat toggle, anniversary countdown, and backup',
+      (WidgetTester tester) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.clear();
+
+    final fixedToday = DateTime(2026, 11, 25, 10, 0);
+    final store = DdayStore();
+    // Seed a past-year date (2020-12-25) initially non-repeating
+    await store.saveItems(<DdayItem>[
+      DdayItem.create(
+        id: 'xmas-2020',
+        title: '聖誕節',
+        date: '2020-12-25',
+        now: fixedToday,
+      ),
+    ]);
+
+    await tester.pumpWidget(DdayApp(store: store, clock: () => fixedToday));
+    await tester.pumpAndSettle();
+
+    // Initially non-repeating -> D+2161
+    expect(find.text('D+2161'), findsOneWidget);
+
+    // Edit and enable repeatYearly -> jumps to 2026-12-25 (D-30)
+    await tester.tap(find.text('聖誕節'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('repeat_yearly_switch')));
+    await tester.pumpAndSettle();
+    expect(find.text('D-30'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('save_button')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('D-30'), findsOneWidget);
+    expect(find.textContaining('每年重複・第 6 週年'), findsOneWidget);
+    expect(find.byIcon(Icons.repeat), findsOneWidget);
+
+    // Verify stored item has repeatYearly = true and survives backup round-trip
+    final saved = await store.loadItems();
+    expect(saved.single.repeatYearly, isTrue);
+  });
 }

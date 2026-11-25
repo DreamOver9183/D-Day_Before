@@ -19,8 +19,8 @@ List<DdayItem> sortDdays(
     int primary = 0;
     switch (mode) {
       case DdaySortMode.nearest:
-        final diffA = dayDiff(a.date, today: todayNormalized);
-        final diffB = dayDiff(b.date, today: todayNormalized);
+        final diffA = effectiveDayDiff(a, today: todayNormalized);
+        final diffB = effectiveDayDiff(b, today: todayNormalized);
         final upcomingA = diffA >= 0;
         final upcomingB = diffB >= 0;
         if (upcomingA != upcomingB) {
@@ -32,7 +32,9 @@ List<DdayItem> sortDdays(
           primary = (-diffA).compareTo(-diffB);
         }
       case DdaySortMode.dateAsc:
-        primary = a.date.compareTo(b.date);
+        final dateA = formatIsoDate(effectiveTargetDate(a, today: todayNormalized));
+        final dateB = formatIsoDate(effectiveTargetDate(b, today: todayNormalized));
+        primary = dateA.compareTo(dateB);
       case DdaySortMode.createdDesc:
         primary = _compareCreatedAtDesc(a, b);
     }

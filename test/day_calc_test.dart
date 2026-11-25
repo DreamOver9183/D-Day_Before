@@ -131,4 +131,79 @@ void main() {
       expect(formatCountdown(item, today: today), '第 1 天');
     });
   });
+
+  group('repeatYearly & Feb 29 handling', () {
+    test('normal yearly birthday jumps to next year after passing', () {
+      final item = DdayItem(
+        id: 'bday',
+        title: '生日',
+        date: '1998-11-20',
+        countFromOne: false,
+        pinned: false,
+        repeatYearly: true,
+        createdAt: '2026-01-01T00:00:00.000Z',
+      );
+
+      // Before birthday in 2026 -> 2026-11-20 (5 days)
+      expect(
+        formatCountdown(item, today: DateTime(2026, 11, 15)),
+        'D-5',
+      );
+      // On birthday -> D-Day
+      expect(
+        formatCountdown(item, today: DateTime(2026, 11, 20)),
+        'D-Day',
+      );
+      expect(
+        anniversarySubtitle(item, today: DateTime(2026, 11, 20)),
+        '每年重複・第 28 週年',
+      );
+      // After birthday -> 2027-11-20 (360 days from 2026-11-25)
+      expect(
+        formatCountdown(item, today: DateTime(2026, 11, 25)),
+        'D-360',
+      );
+      expect(
+        anniversarySubtitle(item, today: DateTime(2026, 11, 25)),
+        '每年重複・第 29 週年',
+      );
+    });
+
+    test('Feb 29 uses Feb 28 in non-leap years and Feb 29 in leap years', () {
+      final leapItem = DdayItem(
+        id: 'leap',
+        title: '四年一度',
+        date: '2024-02-29',
+        countFromOne: false,
+        pinned: false,
+        repeatYearly: true,
+        createdAt: '2024-02-29T00:00:00.000Z',
+      );
+
+      // Non-leap 2025: Feb 27 -> D-1 (Feb 28)
+      expect(
+        formatCountdown(leapItem, today: DateTime(2025, 2, 27)),
+        'D-1',
+      );
+      // Non-leap 2025: Feb 28 -> D-Day
+      expect(
+        formatCountdown(leapItem, today: DateTime(2025, 2, 28)),
+        'D-Day',
+      );
+      // Non-leap 2025: Mar 1 -> jumps to 2026-02-28 (364 days)
+      expect(
+        nextYearlyOccurrence('2024-02-29', today: DateTime(2025, 3, 1)),
+        DateTime.utc(2026, 2, 28),
+      );
+      // Leap 2028: Feb 28 -> D-1 (Feb 29)
+      expect(
+        formatCountdown(leapItem, today: DateTime(2028, 2, 28)),
+        'D-1',
+      );
+      expect(
+        formatCountdown(leapItem, today: DateTime(2028, 2, 29)),
+        'D-Day',
+      );
+    });
+  });
 }

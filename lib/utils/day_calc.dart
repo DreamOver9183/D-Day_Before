@@ -65,6 +65,46 @@ String formatDisplayIsoDateZh(String isoDate) {
   return formatDisplayDateZh(parsed);
 }
 
+bool isLeapYear(int year) {
+  return (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0);
+}
+
+/// Resolves a yearly recurring month/day in [year], mapping Feb 29 to Feb 28
+/// in non-leap years per plan specification.
+DateTime resolveYearlyDateForYear(int year, int month, int day) {
+  if (month == 2 && day == 29 && !isLeapYear(year)) {
+    return DateTime.utc(year, 2, 28);
+  }
+  return DateTime.utc(year, month, day);
+}
+
+/// Returns the next occurrence (>= today) for a yearly repeating [isoDate].
+DateTime nextYearlyOccurrence(String isoDate, {DateTime? today}) {
+  final orig = parseIsoDate(isoDate);
+  final todayUtc = localToday(today);
+  final thisYear = resolveYearlyDateForYear(todayUtc.year, orig.month, orig.day);
+  if (!thisYear.isBefore(todayUtc)) {
+    return thisYear;
+  }
+  return resolveYearlyDateForYear(todayUtc.year + 1, orig.month, orig.day);
+}
+
+/// Returns the effective target date for [item] (next occurrence if
+/// [DdayItem.repeatYearly] is true).
+DateTime effectiveTargetDate(DdayItem item, {DateTime? today}) {
+  if (item.repeatYearly) {
+    return nextYearlyOccurrence(item.date, today: today);
+  }
+  return parseIsoDate(item.date);
+}
+
+/// Computes `effectiveTargetDate - today` in whole days.
+int effectiveDayDiff(DdayItem item, {DateTime? today}) {
+  final targetUtc = effectiveTargetDate(item, today: today);
+  final todayUtc = localToday(today);
+  return targetUtc.difference(todayUtc).inDays;
+}
+
 /// Computes `targetDate - today` in whole days using UTC midnight normalization
 /// so DST transitions never cause off-by-one errors.
 int dayDiff(String targetDateStr, {DateTime? today}) {
@@ -77,8 +117,19 @@ int dayDiff(String targetDateStr, {DateTime? today}) {
 String formatCountdownFromValues({
   required String date,
   required bool countFromOne,
+  bool repeatYearly = false,
   DateTime? today,
 }) {
+  if (repeatYearly) {
+    final todayUtc = localToday(today);
+    final next = nextYearlyOccurrence(date, today: todayUtc);
+    final diff = next.difference(todayUtc).inDays;
+    if (diff == 0) {
+      return 'D-Day';
+    }
+    return 'D-$diff';
+  }
+
   final diff = dayDiff(date, today: today);
   if (countFromOne) {
     if (diff <= 0) {
@@ -101,6 +152,21 @@ String formatCountdown(DdayItem item, {DateTime? today}) {
   return formatCountdownFromValues(
     date: item.date,
     countFromOne: item.countFromOne,
+    repeatYearly: item.repeatYearly,
     today: today,
   );
+}
+
+/// Returns a short subtitle for yearly repeating items (e.g., anniversary count).
+String? anniversarySubtitle(DdayItem item, {DateTime? today}) {
+  if (!item.repeatYearly) {
+    return null;
+  }
+  final orig = parseIsoDate(item.date);
+  final next = nextYearlyOccurrence(item.date, today: today);
+  final years = next.year - orig.year;
+  if (years > 0) {
+    return '每年重複・第 $years 週年';
+  }
+  return '每年重複';
 }

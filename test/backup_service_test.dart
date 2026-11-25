@@ -101,5 +101,12 @@ void main() {
       expect(result.items, <DdayItem>[item2]);
       expect(result.total, 1);
     });
+
+    test('exportJson & parseBackupJson preserve repeatYearly', () {
+      final repeating = item1.copyWith(repeatYearly: true);
+      final raw = service.exportJson(<DdayItem>[repeating]);
+      final parsed = service.parseBackupJson(raw);
+      expect(parsed.items.single.repeatYearly, isTrue);
+    });
   });
 }

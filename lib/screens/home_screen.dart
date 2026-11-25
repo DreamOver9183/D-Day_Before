@@ -299,8 +299,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     itemBuilder: (context, index) {
                       final item = sorted[index];
                       final badge = formatCountdown(item, today: now);
-                      final diff = dayDiff(item.date, today: now);
+                      final diff = effectiveDayDiff(item, today: now);
                       final isToday = diff == 0 && !item.countFromOne;
+                      final displayDate = formatDisplayDateZh(
+                        effectiveTargetDate(item, today: now),
+                      );
+                      final repeatNote = anniversarySubtitle(item, today: now);
 
                       return Card(
                         key: Key('dday_card_${item.id}'),
@@ -354,13 +358,31 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                                         ],
                                       ),
                                       const SizedBox(height: 4),
-                                      Text(
-                                        formatDisplayIsoDateZh(item.date),
-                                        style: theme.textTheme.bodySmall
-                                            ?.copyWith(
-                                          color: theme
-                                              .colorScheme.onSurfaceVariant,
-                                        ),
+                                      Row(
+                                        children: [
+                                          if (item.repeatYearly) ...[
+                                            Icon(
+                                              Icons.repeat,
+                                              size: 14,
+                                              color: theme.colorScheme.primary,
+                                            ),
+                                            const SizedBox(width: 4),
+                                          ],
+                                          Flexible(
+                                            child: Text(
+                                              repeatNote == null
+                                                  ? displayDate
+                                                  : '$displayDate・$repeatNote',
+                                              style: theme.textTheme.bodySmall
+                                                  ?.copyWith(
+                                                color: theme.colorScheme
+                                                    .onSurfaceVariant,
+                                              ),
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ),
+                                        ],
                                       ),
                                     ],
                                   ),

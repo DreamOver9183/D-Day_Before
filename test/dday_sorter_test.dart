@@ -92,5 +92,33 @@ void main() {
         <String>['newer', 'a_same', 'b_same'],
       );
     });
+
+    test('nearest & dateAsc use next occurrence for repeatYearly items', () {
+      final items = <DdayItem>[
+        makeItem(id: 'past_non_repeat', date: '2020-12-01'),
+        const DdayItem(
+          id: 'repeat_soon',
+          title: 'repeat_soon',
+          date: '2020-12-01',
+          countFromOne: false,
+          pinned: false,
+          repeatYearly: true,
+          createdAt: '2026-11-20T00:00:00.000Z',
+        ),
+        makeItem(id: 'future_far', date: '2027-01-01'),
+      ];
+
+      final byNearest = sortDdays(items, DdaySortMode.nearest, today: today);
+      expect(
+        byNearest.map((e) => e.id).toList(),
+        <String>['repeat_soon', 'future_far', 'past_non_repeat'],
+      );
+
+      final byDateAsc = sortDdays(items, DdaySortMode.dateAsc, today: today);
+      expect(
+        byDateAsc.map((e) => e.id).toList(),
+        <String>['past_non_repeat', 'repeat_soon', 'future_far'],
+      );
+    });
   });
 }

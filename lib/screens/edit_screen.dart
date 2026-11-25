@@ -36,10 +36,12 @@ class _EditScreenState extends State<EditScreen> {
   late final TextEditingController _titleController;
   late DateTime _selectedDate;
   late bool _countFromOne;
+  late bool _repeatYearly;
 
   late final String _initialTitle;
   late final String _initialDateIso;
   late final bool _initialCountFromOne;
+  late final bool _initialRepeatYearly;
 
   bool _allowPop = false;
 
@@ -53,17 +55,20 @@ class _EditScreenState extends State<EditScreen> {
       _initialTitle = item.title;
       _initialDateIso = item.date;
       _initialCountFromOne = item.countFromOne;
+      _initialRepeatYearly = item.repeatYearly;
       _selectedDate = parseIsoDate(item.date);
     } else {
       _initialTitle = '';
       final today = localToday(widget.clock());
       _initialDateIso = formatIsoDate(today);
       _initialCountFromOne = false;
+      _initialRepeatYearly = false;
       _selectedDate = today;
     }
     _titleController = TextEditingController(text: _initialTitle);
     _titleController.addListener(_onFormChanged);
     _countFromOne = _initialCountFromOne;
+    _repeatYearly = _initialRepeatYearly;
   }
 
   @override
@@ -80,7 +85,8 @@ class _EditScreenState extends State<EditScreen> {
   bool get _hasUnsavedChanges {
     return _titleController.text.trim() != _initialTitle ||
         formatIsoDate(_selectedDate) != _initialDateIso ||
-        _countFromOne != _initialCountFromOne;
+        _countFromOne != _initialCountFromOne ||
+        _repeatYearly != _initialRepeatYearly;
   }
 
   Future<void> _pickDate() async {
@@ -113,12 +119,14 @@ class _EditScreenState extends State<EditScreen> {
         ? widget.initialItem!.copyWith(
             title: title,
             date: isoDate,
-            countFromOne: _countFromOne,
+            countFromOne: _repeatYearly ? false : _countFromOne,
+            repeatYearly: _repeatYearly,
           )
         : DdayItem.create(
             title: title,
             date: isoDate,
-            countFromOne: _countFromOne,
+            countFromOne: _repeatYearly ? false : _countFromOne,
+            repeatYearly: _repeatYearly,
             now: widget.clock(),
           );
 
@@ -192,8 +200,12 @@ class _EditScreenState extends State<EditScreen> {
     final previewBadge = formatCountdownFromValues(
       date: isoDate,
       countFromOne: _countFromOne,
+      repeatYearly: _repeatYearly,
       today: now,
     );
+    final previewDisplayDate = _repeatYearly
+        ? formatDisplayDateZh(nextYearlyOccurrence(isoDate, today: now))
+        : formatDisplayDateZh(_selectedDate);
     final previewTitle = _titleController.text.trim().isEmpty
         ? '（未命名項目）'
         : _titleController.text.trim();
@@ -252,7 +264,7 @@ class _EditScreenState extends State<EditScreen> {
                               ),
                               const SizedBox(height: 2),
                               Text(
-                                formatDisplayDateZh(_selectedDate),
+                                previewDisplayDate,
                                 style: theme.textTheme.bodySmall?.copyWith(
                                   color: theme.colorScheme.onSurfaceVariant,
                                 ),
@@ -325,21 +337,51 @@ class _EditScreenState extends State<EditScreen> {
                     onChanged: (value) {
                       setState(() {
                         _countFromOne = value;
+                        if (value) {
+                          _repeatYearly = false;
+                        }
                       });
                     },
                   ),
                 ),
-                const SizedBox(height: 24),
-                FilledButton.icon(
-                  key: const Key('save_button'),
-                  onPressed: _save,
-                  icon: const Icon(Icons.check),
-                  label: const Text('儲存'),
-                  style: FilledButton.styleFrom(
-                    minimumSize: const Size.fromHeight(48),
+                const SizedBox(height: 12),
+                Card(
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    side: BorderSide(color: theme.colorScheme.outlineVariant),
+                  ),
+                  child: SwitchListTile(
+                    key: const Key('repeat_yearly_switch'),
+                    title: const Text('每年重複（生日／紀念日）'),
+                    subtitle: const Text('每年自動跳到下一次；2/29 於平年以 2/28 計算'),
+                    value: _repeatYearly,
+                    onChanged: (value) {
+                      setState(() {
+                        _repeatYearly = value;
+                        if (value) {
+                          _countFromOne = false;
+                        }
+                      });
+                    },
                   ),
                 ),
+                const SizedBox(height: 16),
               ],
+            ),
+          ),
+        ),
+        bottomNavigationBar: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+            child: FilledButton.icon(
+              key: const Key('save_button'),
+              onPressed: _save,
+              icon: const Icon(Icons.check),
+              label: const Text('儲存'),
+              style: FilledButton.styleFrom(
+                minimumSize: const Size.fromHeight(48),
+              ),
             ),
           ),
         ),
