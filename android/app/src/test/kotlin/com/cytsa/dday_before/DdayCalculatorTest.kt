@@ -87,4 +87,39 @@ class DdayCalculatorTest {
         assertEquals(3, reminders.size)
         assertEquals(listOf(3, 1, 0), reminders.map { it.daysBefore })
     }
+
+    @Test
+    fun `computeWidgetSummary handles empty list and pinned top item`() {
+        val empty = DdayCalculator.computeWidgetSummary(null, "nearest", today)
+        assertEquals("D-Day Before", empty.title)
+        assertEquals("D-Day", empty.countdown)
+
+        val json = """
+            {
+              "schemaVersion": 1,
+              "items": [
+                {
+                  "id": "near",
+                  "title": "近期事件",
+                  "date": "2026-11-26",
+                  "pinned": false
+                },
+                {
+                  "id": "pin",
+                  "title": "置頂生日",
+                  "date": "2020-12-25",
+                  "pinned": true,
+                  "repeatYearly": true,
+                  "colorKey": "rose"
+                }
+              ]
+            }
+        """.trimIndent()
+        val summary = DdayCalculator.computeWidgetSummary(json, "nearest", today)
+        assertEquals("📌 置頂生日", summary.title)
+        assertEquals("D-30", summary.countdown)
+        assertTrue(summary.subtitle.contains("每年重複・第 6 週年"))
+        assertEquals(0xFFE11D48.toInt(), summary.accentColor)
+        assertTrue(summary.isPinned)
+    }
 }

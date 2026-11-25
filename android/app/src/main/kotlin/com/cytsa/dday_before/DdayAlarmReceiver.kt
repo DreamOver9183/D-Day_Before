@@ -16,6 +16,7 @@ class DdayAlarmReceiver : BroadcastReceiver() {
             }
             DdayNotificationManager.ACTION_MIDNIGHT_REFRESH -> {
                 DdayNotificationManager.syncAll(context)
+                DdayAppWidgetProvider.updateAllWidgets(context)
             }
         }
     }

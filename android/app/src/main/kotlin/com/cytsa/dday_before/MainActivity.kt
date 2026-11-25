@@ -53,6 +53,10 @@ class MainActivity : FlutterActivity() {
                     DdayNotificationManager.syncAll(applicationContext)
                     result.success(true)
                 }
+                "refreshWidgets" -> {
+                    DdayAppWidgetProvider.updateAllWidgets(applicationContext)
+                    result.success(true)
+                }
                 else -> result.notImplemented()
             }
         }

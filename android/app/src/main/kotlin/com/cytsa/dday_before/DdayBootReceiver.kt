@@ -12,6 +12,7 @@ class DdayBootReceiver : BroadcastReceiver() {
             Intent.ACTION_TIMEZONE_CHANGED,
             Intent.ACTION_DATE_CHANGED -> {
                 DdayNotificationManager.syncAll(context)
+                DdayAppWidgetProvider.updateAllWidgets(context)
             }
         }
     }

@@ -98,6 +98,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     });
     await widget.store.saveItems(updated);
     await widget.nativeBridge.syncNotifications();
+    await widget.nativeBridge.refreshWidgets();
   }
 
   Future<void> _changeSortMode(DdaySortMode mode) async {
@@ -107,6 +108,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     });
     await widget.store.saveSortMode(mode);
     await widget.nativeBridge.syncNotifications();
+    await widget.nativeBridge.refreshWidgets();
   }
 
   Future<void> _openSettings() async {
@@ -118,6 +120,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           themeMode: widget.themeMode,
           onThemeModeChanged: widget.onThemeModeChanged ?? (_) async {},
           currentItems: _items,
+          sortMode: _sortMode,
           onSaveItems: _persistItems,
           backupService: widget.backupService,
           fileChannel: widget.fileChannel,

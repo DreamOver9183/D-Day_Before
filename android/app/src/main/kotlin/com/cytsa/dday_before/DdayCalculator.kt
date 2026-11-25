@@ -35,6 +35,14 @@ data class ScheduledReminder(
     val daysBefore: Int,
 )
 
+data class WidgetSummary(
+    val title: String,
+    val subtitle: String,
+    val countdown: String,
+    val accentColor: Int,
+    val isPinned: Boolean,
+)
+
 object DdayCalculator {
     private val ISO_DATE_REGEX = Regex("""^(\d{4})-(\d{2})-(\d{2})$""")
     private val ZH_WEEKDAYS = arrayOf("一", "二", "三", "四", "五", "六", "日")
@@ -325,5 +333,36 @@ object DdayCalculator {
             }
         }
         return scheduled.sortedBy { it.triggerAtMillis }.take(50)
+    }
+
+    fun computeWidgetSummary(
+        rawItemsJson: String?,
+        sortMode: String?,
+        today: SimpleYmd,
+    ): WidgetSummary {
+        val items = parseItemsJson(rawItemsJson)
+        if (items.isEmpty()) {
+            return WidgetSummary(
+                title = "D-Day Before",
+                subtitle = "點擊新增重要日子",
+                countdown = "D-Day",
+                accentColor = colorHexForKey(null),
+                isPinned = false,
+            )
+        }
+        val top = sortDdays(items, sortMode, today).first()
+        val countdown = formatCountdown(top, today)
+        val targetDate = effectiveTargetDate(top, today)
+        val dateText = formatDisplayDateZh(targetDate)
+        val repeatText = anniversarySubtitle(top, today)
+        val subtitle = if (repeatText != null) "$dateText・$repeatText" else dateText
+        val title = if (top.pinned) "📌 ${top.title}" else top.title
+        return WidgetSummary(
+            title = title,
+            subtitle = subtitle,
+            countdown = countdown,
+            accentColor = colorHexForKey(top.colorKey),
+            isPinned = top.pinned,
+        )
     }
 }

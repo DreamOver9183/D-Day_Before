@@ -387,4 +387,57 @@ void main() {
     expect(await store.loadOngoingNotification(), isTrue);
     expect(testBridge.syncCalls, greaterThanOrEqualTo(1));
   });
+
+  testWidgets('v0.6 E2E: home widget preview & native refreshWidgets sync',
+      (WidgetTester tester) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.clear();
+
+    final fixedToday = DateTime(2026, 11, 25, 10, 0);
+    final store = DdayStore();
+    await store.saveItems(<DdayItem>[
+      DdayItem.create(
+        id: 'w1',
+        title: '小工具優先事件',
+        date: '2026-12-05',
+        pinned: true,
+        colorKey: 'teal',
+        now: fixedToday,
+      ),
+      DdayItem.create(
+        id: 'w2',
+        title: '次要事件',
+        date: '2026-11-26',
+        pinned: false,
+        now: fixedToday,
+      ),
+    ]);
+
+    // Real MethodChannelNativeBridge verifies Kotlin refreshWidgets executes cleanly
+    await tester.pumpWidget(DdayApp(store: store, clock: () => fixedToday));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('settings_button')));
+    await tester.pumpAndSettle();
+
+    final previewBox = find.byKey(const Key('widget_preview_box'));
+    await tester.ensureVisible(previewBox);
+    expect(
+      find.descendant(
+        of: previewBox,
+        matching: find.text('📌 小工具優先事件'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: previewBox, matching: find.text('D-10')),
+      findsOneWidget,
+    );
+
+    final syncBtn = find.byKey(const Key('sync_widget_button'));
+    await tester.ensureVisible(syncBtn);
+    await tester.tap(syncBtn);
+    await tester.pumpAndSettle();
+    expect(find.text('已同步桌面小工具'), findsOneWidget);
+  });
 }
