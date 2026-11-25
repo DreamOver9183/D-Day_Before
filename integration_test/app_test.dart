@@ -2,12 +2,34 @@ import 'package:dday_before/data/backup_service.dart';
 import 'package:dday_before/data/dday_store.dart';
 import 'package:dday_before/main.dart';
 import 'package:dday_before/models/dday.dart';
+import 'package:dday_before/services/native_bridge.dart';
 import 'package:dday_before/utils/day_calc.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+class _TestNativeBridge implements NativeBridge {
+  int syncCalls = 0;
+  int widgetRefreshCalls = 0;
+
+  @override
+  Future<bool> hasNotificationPermission() async => true;
+
+  @override
+  Future<bool> requestNotificationPermission() async => true;
+
+  @override
+  Future<void> syncNotifications() async {
+    syncCalls++;
+  }
+
+  @override
+  Future<void> refreshWidgets() async {
+    widgetRefreshCalls++;
+  }
+}
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -312,5 +334,57 @@ void main() {
     expect(await store.loadThemeMode(), ThemeMode.light);
     final lightCtx = tester.element(find.byKey(const Key('fab_add')));
     expect(Theme.of(lightCtx).brightness, Brightness.light);
+  });
+
+  testWidgets('v0.5 E2E: item reminders, settings ongoing toggle, native channel sync',
+      (WidgetTester tester) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.clear();
+
+    final fixedToday = DateTime(2026, 11, 25, 10, 0);
+    final store = DdayStore();
+
+    // 1. Run with REAL MethodChannelNativeBridge to verify Android Kotlin channel works
+    await tester.pumpWidget(DdayApp(store: store, clock: () => fixedToday));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('fab_add')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('title_field')), '提醒測試');
+    await tester.pumpAndSettle();
+
+    final chip0 = find.byKey(const Key('reminder_chip_0'));
+    final chip3 = find.byKey(const Key('reminder_chip_3'));
+    await tester.ensureVisible(chip0);
+    await tester.tap(chip0);
+    await tester.tap(chip3);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('save_button')));
+    await tester.pumpAndSettle();
+
+    expect(find.byIcon(Icons.notifications_active_outlined), findsOneWidget);
+    final saved = await store.loadItems();
+    expect(saved.single.reminderDaysBefore, <int>[0, 3]);
+
+    // 2. Open Settings with permission-granted bridge to test ongoing toggle persistence
+    final testBridge = _TestNativeBridge();
+    await tester.pumpWidget(
+      DdayApp(
+        store: store,
+        nativeBridge: testBridge,
+        clock: () => fixedToday,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('settings_button')));
+    await tester.pumpAndSettle();
+    expect(find.text('09:00'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('ongoing_notification_switch')));
+    await tester.pumpAndSettle();
+    expect(await store.loadOngoingNotification(), isTrue);
+    expect(testBridge.syncCalls, greaterThanOrEqualTo(1));
   });
 }

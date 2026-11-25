@@ -1,7 +1,11 @@
 package com.cytsa.dday_before
 
+import android.Manifest
 import android.app.Activity
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.core.app.ActivityCompat
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -14,11 +18,13 @@ class MainActivity : FlutterActivity() {
         private const val CHANNEL_NAME = "com.cytsa.dday_before/native"
         private const val REQUEST_CREATE_BACKUP = 2001
         private const val REQUEST_OPEN_BACKUP = 2002
+        private const val REQUEST_POST_NOTIFICATIONS = 2003
     }
 
     private var pendingExportResult: MethodChannel.Result? = null
     private var pendingExportContent: String? = null
     private var pendingImportResult: MethodChannel.Result? = null
+    private var pendingPermissionResult: MethodChannel.Result? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -35,7 +41,57 @@ class MainActivity : FlutterActivity() {
                 "importJsonFile" -> {
                     launchOpenDocument(result)
                 }
+                "hasNotificationPermission" -> {
+                    result.success(
+                        DdayNotificationManager.hasNotificationPermission(applicationContext),
+                    )
+                }
+                "requestNotificationPermission" -> {
+                    requestNotificationPermission(result)
+                }
+                "syncNotifications" -> {
+                    DdayNotificationManager.syncAll(applicationContext)
+                    result.success(true)
+                }
                 else -> result.notImplemented()
+            }
+        }
+    }
+
+    private fun requestNotificationPermission(result: MethodChannel.Result) {
+        if (DdayNotificationManager.hasNotificationPermission(applicationContext)) {
+            result.success(true)
+            return
+        }
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            result.success(false)
+            return
+        }
+        if (pendingPermissionResult != null) {
+            result.error("BUSY", "Permission request already in progress.", null)
+            return
+        }
+        pendingPermissionResult = result
+        ActivityCompat.requestPermissions(
+            this,
+            arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+            REQUEST_POST_NOTIFICATIONS,
+        )
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray,
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == REQUEST_POST_NOTIFICATIONS) {
+            val callback = pendingPermissionResult
+            pendingPermissionResult = null
+            if (callback != null) {
+                val granted = grantResults.isNotEmpty() &&
+                    grantResults[0] == PackageManager.PERMISSION_GRANTED
+                callback.success(granted)
             }
         }
     }

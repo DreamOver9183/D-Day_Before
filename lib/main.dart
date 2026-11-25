@@ -3,6 +3,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 
 import 'data/dday_store.dart';
 import 'screens/home_screen.dart';
+import 'services/native_bridge.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -13,10 +14,12 @@ class DdayApp extends StatefulWidget {
   const DdayApp({
     super.key,
     required this.store,
+    this.nativeBridge = const MethodChannelNativeBridge(),
     DateTime Function()? clock,
   }) : clock = clock ?? DateTime.now;
 
   final DdayStore store;
+  final NativeBridge nativeBridge;
   final DateTime Function() clock;
 
   @override
@@ -77,6 +80,7 @@ class _DdayAppState extends State<DdayApp> {
       ),
       home: HomeScreen(
         store: widget.store,
+        nativeBridge: widget.nativeBridge,
         clock: widget.clock,
         themeMode: _themeMode,
         onThemeModeChanged: _changeThemeMode,

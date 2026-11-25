@@ -1,5 +1,7 @@
 import 'dart:math';
 
+import 'package:flutter/foundation.dart';
+
 import '../theme/dday_colors.dart';
 
 /// Sorting strategies supported by the home list.
@@ -57,6 +59,7 @@ class DdayItem {
     required this.createdAt,
     this.repeatYearly = false,
     this.colorKey,
+    this.reminderDaysBefore = const <int>[],
   });
 
   final String id;
@@ -67,6 +70,7 @@ class DdayItem {
   final String createdAt; // UTC ISO-8601 ending in Z
   final bool repeatYearly;
   final String? colorKey;
+  final List<int> reminderDaysBefore;
 
   factory DdayItem.create({
     required String title,
@@ -75,6 +79,7 @@ class DdayItem {
     bool pinned = false,
     bool repeatYearly = false,
     String? colorKey,
+    List<int> reminderDaysBefore = const <int>[],
     DateTime? now,
     String? id,
   }) {
@@ -88,6 +93,7 @@ class DdayItem {
       createdAt: timestamp,
       repeatYearly: repeatYearly,
       colorKey: DdayColors.normalizeKey(colorKey),
+      reminderDaysBefore: _normalizeReminderDays(reminderDaysBefore),
     );
   }
 
@@ -100,6 +106,7 @@ class DdayItem {
     String? createdAt,
     bool? repeatYearly,
     Object? colorKey = _unset,
+    List<int>? reminderDaysBefore,
   }) {
     return DdayItem(
       id: id ?? this.id,
@@ -112,6 +119,9 @@ class DdayItem {
       colorKey: identical(colorKey, _unset)
           ? this.colorKey
           : DdayColors.normalizeKey(colorKey),
+      reminderDaysBefore: reminderDaysBefore != null
+          ? _normalizeReminderDays(reminderDaysBefore)
+          : this.reminderDaysBefore,
     );
   }
 
@@ -125,6 +135,8 @@ class DdayItem {
       'createdAt': createdAt,
       'repeatYearly': repeatYearly,
       if (colorKey != null) 'colorKey': colorKey,
+      if (reminderDaysBefore.isNotEmpty)
+        'reminderDaysBefore': reminderDaysBefore,
     };
   }
 
@@ -154,6 +166,7 @@ class DdayItem {
     final rawRepeatYearly = raw['repeatYearly'];
     final rawCreatedAt = raw['createdAt'];
     final rawColorKey = raw['colorKey'] ?? raw['color'];
+    final rawReminders = raw['reminderDaysBefore'];
 
     String normalizedCreatedAt;
     if (rawCreatedAt is String) {
@@ -169,6 +182,9 @@ class DdayItem {
     final repeatYearly = rawRepeatYearly is bool ? rawRepeatYearly : false;
     final countFromOne =
         !repeatYearly && rawCountFromOne is bool ? rawCountFromOne : false;
+    final reminders = rawReminders is List
+        ? _normalizeReminderDays(rawReminders.whereType<int>())
+        : const <int>[];
 
     return DdayItem(
       id: rawId.trim(),
@@ -179,7 +195,13 @@ class DdayItem {
       createdAt: normalizedCreatedAt,
       repeatYearly: repeatYearly,
       colorKey: DdayColors.normalizeKey(rawColorKey),
+      reminderDaysBefore: reminders,
     );
+  }
+
+  static List<int> _normalizeReminderDays(Iterable<int> days) {
+    final unique = <int>{for (final d in days) if (d >= 0) d}.toList()..sort();
+    return List<int>.unmodifiable(unique);
   }
 
   static bool _isValidIsoDate(String value) {
@@ -205,7 +227,8 @@ class DdayItem {
         other.pinned == pinned &&
         other.createdAt == createdAt &&
         other.repeatYearly == repeatYearly &&
-        other.colorKey == colorKey;
+        other.colorKey == colorKey &&
+        listEquals(other.reminderDaysBefore, reminderDaysBefore);
   }
 
   @override
@@ -218,5 +241,6 @@ class DdayItem {
         createdAt,
         repeatYearly,
         colorKey,
+        Object.hashAll(reminderDaysBefore),
       );
 }

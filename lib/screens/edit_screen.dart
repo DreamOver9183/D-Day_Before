@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../models/dday.dart';
@@ -39,12 +40,14 @@ class _EditScreenState extends State<EditScreen> {
   late bool _countFromOne;
   late bool _repeatYearly;
   String? _colorKey;
+  late List<int> _reminderDaysBefore;
 
   late final String _initialTitle;
   late final String _initialDateIso;
   late final bool _initialCountFromOne;
   late final bool _initialRepeatYearly;
   late final String? _initialColorKey;
+  late final List<int> _initialReminderDaysBefore;
 
   bool _allowPop = false;
 
@@ -60,6 +63,7 @@ class _EditScreenState extends State<EditScreen> {
       _initialCountFromOne = item.countFromOne;
       _initialRepeatYearly = item.repeatYearly;
       _initialColorKey = item.colorKey;
+      _initialReminderDaysBefore = List<int>.from(item.reminderDaysBefore);
       _selectedDate = parseIsoDate(item.date);
     } else {
       _initialTitle = '';
@@ -68,6 +72,7 @@ class _EditScreenState extends State<EditScreen> {
       _initialCountFromOne = false;
       _initialRepeatYearly = false;
       _initialColorKey = null;
+      _initialReminderDaysBefore = const <int>[];
       _selectedDate = today;
     }
     _titleController = TextEditingController(text: _initialTitle);
@@ -75,6 +80,7 @@ class _EditScreenState extends State<EditScreen> {
     _countFromOne = _initialCountFromOne;
     _repeatYearly = _initialRepeatYearly;
     _colorKey = _initialColorKey;
+    _reminderDaysBefore = List<int>.from(_initialReminderDaysBefore);
   }
 
   @override
@@ -89,11 +95,13 @@ class _EditScreenState extends State<EditScreen> {
   }
 
   bool get _hasUnsavedChanges {
+    final sortedCurrent = List<int>.from(_reminderDaysBefore)..sort();
     return _titleController.text.trim() != _initialTitle ||
         formatIsoDate(_selectedDate) != _initialDateIso ||
         _countFromOne != _initialCountFromOne ||
         _repeatYearly != _initialRepeatYearly ||
-        _colorKey != _initialColorKey;
+        _colorKey != _initialColorKey ||
+        !listEquals(sortedCurrent, _initialReminderDaysBefore);
   }
 
   Future<void> _pickDate() async {
@@ -129,6 +137,7 @@ class _EditScreenState extends State<EditScreen> {
             countFromOne: _repeatYearly ? false : _countFromOne,
             repeatYearly: _repeatYearly,
             colorKey: _colorKey,
+            reminderDaysBefore: _reminderDaysBefore,
           )
         : DdayItem.create(
             title: title,
@@ -136,6 +145,7 @@ class _EditScreenState extends State<EditScreen> {
             countFromOne: _repeatYearly ? false : _countFromOne,
             repeatYearly: _repeatYearly,
             colorKey: _colorKey,
+            reminderDaysBefore: _reminderDaysBefore,
             now: widget.clock(),
           );
 
@@ -462,6 +472,67 @@ class _EditScreenState extends State<EditScreen> {
                                   ),
                                 ),
                               ),
+                            );
+                          }).toList(),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Card(
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    side: BorderSide(color: theme.colorScheme.outlineVariant),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '提醒通知',
+                          style: theme.textTheme.titleMedium,
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '於設定的提醒時間發送本機通知',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: const <(int, String)>[
+                            (0, '當天'),
+                            (1, '前 1 天'),
+                            (3, '前 3 天'),
+                            (7, '前 7 天'),
+                          ].map((option) {
+                            final selected =
+                                _reminderDaysBefore.contains(option.$1);
+                            return FilterChip(
+                              key: Key('reminder_chip_${option.$1}'),
+                              label: Text(option.$2),
+                              selected: selected,
+                              onSelected: (value) {
+                                setState(() {
+                                  if (value) {
+                                    _reminderDaysBefore = <int>{
+                                      ..._reminderDaysBefore,
+                                      option.$1,
+                                    }.toList()
+                                      ..sort();
+                                  } else {
+                                    _reminderDaysBefore = _reminderDaysBefore
+                                        .where((d) => d != option.$1)
+                                        .toList();
+                                  }
+                                });
+                              },
                             );
                           }).toList(),
                         ),

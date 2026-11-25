@@ -114,6 +114,27 @@ void main() {
       expect(parsed!.colorKey, isNull);
     });
 
+    test('reminderDaysBefore normalizes and round-trips, settings persist',
+        () async {
+      final parsed = DdayItem.tryFromJson(<String, dynamic>{
+        'id': 'rem1',
+        'title': 'RemTest',
+        'date': '2026-12-25',
+        'reminderDaysBefore': <dynamic>[7, 0, -1, 7, 1],
+      });
+      expect(parsed, isNotNull);
+      expect(parsed!.reminderDaysBefore, <int>[0, 1, 7]);
+
+      final store = DdayStore();
+      expect(await store.loadOngoingNotification(), isFalse);
+      expect(await store.loadReminderTime(), '09:00');
+
+      await store.saveOngoingNotification(true);
+      await store.saveReminderTime('20:30');
+      expect(await DdayStore().loadOngoingNotification(), isTrue);
+      expect(await DdayStore().loadReminderTime(), '20:30');
+    });
+
     test('generateUuidV4 generates distinct v4 UUIDs', () {
       final a = generateUuidV4();
       final b = generateUuidV4();

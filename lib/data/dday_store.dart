@@ -15,6 +15,8 @@ class DdayStore {
   static const String itemsKey = 'dday_items_v1';
   static const String sortModeKey = 'dday_sort_mode';
   static const String themeModeKey = 'dday_theme_mode';
+  static const String ongoingNotificationKey = 'dday_ongoing_notification';
+  static const String reminderTimeKey = 'dday_reminder_time';
 
   final Future<SharedPreferences> Function() _prefsProvider;
 
@@ -93,5 +95,37 @@ class DdayStore {
       ThemeMode.system => 'system',
     };
     await prefs.setString(themeModeKey, value);
+  }
+
+  Future<bool> loadOngoingNotification() async {
+    try {
+      final prefs = await _prefsProvider();
+      return prefs.getBool(ongoingNotificationKey) ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> saveOngoingNotification(bool enabled) async {
+    final prefs = await _prefsProvider();
+    await prefs.setBool(ongoingNotificationKey, enabled);
+  }
+
+  Future<String> loadReminderTime() async {
+    try {
+      final prefs = await _prefsProvider();
+      final raw = prefs.getString(reminderTimeKey);
+      if (raw != null && RegExp(r'^([01]\d|2[0-3]):[0-5]\d$').hasMatch(raw)) {
+        return raw;
+      }
+      return '09:00';
+    } catch (_) {
+      return '09:00';
+    }
+  }
+
+  Future<void> saveReminderTime(String hhMm) async {
+    final prefs = await _prefsProvider();
+    await prefs.setString(reminderTimeKey, hhMm);
   }
 }

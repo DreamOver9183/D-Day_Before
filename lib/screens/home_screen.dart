@@ -5,11 +5,13 @@ import 'package:flutter/material.dart';
 import '../data/backup_service.dart';
 import '../data/dday_store.dart';
 import '../models/dday.dart';
+import '../services/native_bridge.dart';
 import '../theme/dday_colors.dart';
 import '../utils/day_calc.dart';
 import '../utils/dday_sorter.dart';
 import 'backup_screen.dart';
 import 'edit_screen.dart';
+import 'settings_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({
@@ -17,6 +19,7 @@ class HomeScreen extends StatefulWidget {
     required this.store,
     this.backupService = const BackupService(),
     this.fileChannel = const MethodChannelBackupFileChannel(),
+    this.nativeBridge = const MethodChannelNativeBridge(),
     this.themeMode = ThemeMode.system,
     this.onThemeModeChanged,
     DateTime Function()? clock,
@@ -25,6 +28,7 @@ class HomeScreen extends StatefulWidget {
   final DdayStore store;
   final BackupService backupService;
   final BackupFileChannel fileChannel;
+  final NativeBridge nativeBridge;
   final ThemeMode themeMode;
   final Future<void> Function(ThemeMode mode)? onThemeModeChanged;
   final DateTime Function() clock;
@@ -93,6 +97,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _items = updated;
     });
     await widget.store.saveItems(updated);
+    await widget.nativeBridge.syncNotifications();
   }
 
   Future<void> _changeSortMode(DdaySortMode mode) async {
@@ -101,6 +106,25 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _sortMode = mode;
     });
     await widget.store.saveSortMode(mode);
+    await widget.nativeBridge.syncNotifications();
+  }
+
+  Future<void> _openSettings() async {
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => SettingsScreen(
+          store: widget.store,
+          nativeBridge: widget.nativeBridge,
+          themeMode: widget.themeMode,
+          onThemeModeChanged: widget.onThemeModeChanged ?? (_) async {},
+          currentItems: _items,
+          onSaveItems: _persistItems,
+          backupService: widget.backupService,
+          fileChannel: widget.fileChannel,
+          clock: widget.clock,
+        ),
+      ),
+    );
   }
 
   Future<void> _openBackup() async {
@@ -275,6 +299,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             icon: const Icon(Icons.import_export),
             onPressed: _openBackup,
           ),
+          IconButton(
+            key: const Key('settings_button'),
+            tooltip: '設定',
+            icon: const Icon(Icons.settings_outlined),
+            onPressed: _openSettings,
+          ),
           PopupMenuButton<DdaySortMode>(
             key: const Key('sort_menu_button'),
             tooltip: '排序方式',
@@ -418,6 +448,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                                           if (item.repeatYearly) ...[
                                             Icon(
                                               Icons.repeat,
+                                              size: 14,
+                                              color: colors.accentColor,
+                                            ),
+                                            const SizedBox(width: 4),
+                                          ],
+                                          if (item.reminderDaysBefore.isNotEmpty) ...[
+                                            Icon(
+                                              Icons.notifications_active_outlined,
                                               size: 14,
                                               color: colors.accentColor,
                                             ),
