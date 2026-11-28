@@ -79,10 +79,20 @@ DateTime resolveYearlyDateForYear(int year, int month, int day) {
 }
 
 /// Returns the next occurrence (>= today) for a yearly repeating [isoDate].
+///
+/// If the original date itself is still in the future (or today), it is the
+/// first occurrence and is returned unchanged.
 DateTime nextYearlyOccurrence(String isoDate, {DateTime? today}) {
   final orig = parseIsoDate(isoDate);
   final todayUtc = localToday(today);
-  final thisYear = resolveYearlyDateForYear(todayUtc.year, orig.month, orig.day);
+  if (!orig.isBefore(todayUtc)) {
+    return orig;
+  }
+  final thisYear = resolveYearlyDateForYear(
+    todayUtc.year,
+    orig.month,
+    orig.day,
+  );
   if (!thisYear.isBefore(todayUtc)) {
     return thisYear;
   }
@@ -133,7 +143,7 @@ String formatCountdownFromValues({
   final diff = dayDiff(date, today: today);
   if (countFromOne) {
     if (diff <= 0) {
-      return '第 ${-diff + 1} 天';
+      return '${-diff + 1}天';
     }
     return 'D-$diff';
   }

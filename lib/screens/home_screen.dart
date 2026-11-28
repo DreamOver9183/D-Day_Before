@@ -1,14 +1,21 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../data/backup_service.dart';
 import '../data/dday_store.dart';
 import '../models/dday.dart';
+import '../services/background_images.dart';
 import '../services/native_bridge.dart';
+import '../services/update_service.dart';
 import '../theme/dday_colors.dart';
 import '../utils/day_calc.dart';
 import '../utils/dday_sorter.dart';
+import '../widgets/dday_card.dart';
+import '../widgets/dialogs.dart';
+import '../widgets/soft_card.dart';
+import '../widgets/update_flow.dart';
 import 'backup_screen.dart';
 import 'edit_screen.dart';
 import 'settings_screen.dart';
@@ -22,6 +29,8 @@ class HomeScreen extends StatefulWidget {
     this.nativeBridge = const MethodChannelNativeBridge(),
     this.themeMode = ThemeMode.system,
     this.onThemeModeChanged,
+    this.updateSource = const GitHubUpdateSource(),
+    this.autoCheckUpdates = false,
     DateTime Function()? clock,
   }) : clock = clock ?? DateTime.now;
 
@@ -31,7 +40,14 @@ class HomeScreen extends StatefulWidget {
   final NativeBridge nativeBridge;
   final ThemeMode themeMode;
   final Future<void> Function(ThemeMode mode)? onThemeModeChanged;
+  final UpdateSource updateSource;
+  final bool autoCheckUpdates;
   final DateTime Function() clock;
+
+  /// How many times the sorted card list has been (re)computed. Tests use it
+  /// to check that unrelated rebuilds reuse the cache.
+  @visibleForTesting
+  static int debugViewModelBuildCount = 0;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -39,9 +55,34 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   List<DdayItem> _items = <DdayItem>[];
+
+  /// Last list known to be on disk; restored when the newest write fails.
+  List<DdayItem> _lastPersistedItems = <DdayItem>[];
   DdaySortMode _sortMode = DdaySortMode.nearest;
   bool _loading = true;
+  String? _recoveryRaw;
   Timer? _midnightTimer;
+
+  // Serialized writes.
+  Future<void> _writeChain = Future<void>.value();
+  int _writeSeq = 0;
+
+  // Native sync re-entrancy guard.
+  bool _syncing = false;
+  bool _syncAgain = false;
+
+  // Sorted view-model cache.
+  List<DdayCardData>? _cache;
+  List<DdayItem>? _cacheItems;
+  DdaySortMode? _cacheSortMode;
+  DateTime? _cacheDay;
+
+  late final UpdateFlow _updateFlow = UpdateFlow(
+    source: widget.updateSource,
+    bridge: widget.nativeBridge,
+    store: widget.store,
+    clock: widget.clock,
+  );
 
   @override
   void initState() {
@@ -60,10 +101,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed && mounted) {
-      setState(() {});
-      _scheduleMidnightRefresh();
-    }
+    if (state != AppLifecycleState.resumed || !mounted) return;
+    // A changed day is picked up by the cache check in build().
+    setState(() {});
+    _scheduleMidnightRefresh();
+    _syncNativeBestEffort();
   }
 
   void _scheduleMidnightRefresh() {
@@ -76,39 +118,185 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       if (!mounted) return;
       setState(() {});
       _scheduleMidnightRefresh();
+      _syncNativeBestEffort();
     });
   }
 
   Future<void> _loadInitial() async {
-    final results = await Future.wait<dynamic>([
-      widget.store.loadItems(),
+    final results = await Future.wait<Object?>([
+      widget.store.loadItemsDetailed(),
       widget.store.loadSortMode(),
+      _loadBackgroundsDirectory(),
     ]);
     if (!mounted) return;
+    BackgroundImages.configure(results[2] as String?);
+    final loaded = results[0] as LoadItemsResult;
     setState(() {
-      _items = results[0] as List<DdayItem>;
+      _items = loaded.items;
+      _lastPersistedItems = loaded.items;
+      _recoveryRaw = loaded.recoveryRaw;
       _sortMode = results[1] as DdaySortMode;
       _loading = false;
     });
+    _syncNativeBestEffort();
+    _cleanupBackgroundsBestEffort();
+    if (widget.autoCheckUpdates) {
+      unawaited(_updateFlow.autoCheck(context));
+    }
   }
 
-  Future<void> _persistItems(List<DdayItem> updated) async {
+  Future<String?> _loadBackgroundsDirectory() async {
+    try {
+      return await widget.nativeBridge.backgroundsDirectory();
+    } catch (e) {
+      debugPrint('backgroundsDirectory failed: $e');
+      return null;
+    }
+  }
+
+  /// Deletes photos no saved item uses any more (replaced or deleted items).
+  Future<void> _cleanupBackgroundsBestEffort() async {
+    final keep = <String>{
+      for (final item in _lastPersistedItems)
+        if (item.backgroundImage != null) item.backgroundImage!,
+    };
+    try {
+      await widget.nativeBridge.cleanupBackgrounds(keep);
+    } catch (e) {
+      debugPrint('cleanupBackgrounds failed: $e');
+    }
+  }
+
+  /// Pushes current data to notifications and home widgets. Never throws;
+  /// overlapping calls collapse into one extra run.
+  Future<void> _syncNativeBestEffort() async {
+    if (_syncing) {
+      _syncAgain = true;
+      return;
+    }
+    _syncing = true;
+    try {
+      do {
+        _syncAgain = false;
+        try {
+          await widget.nativeBridge.syncNotifications();
+        } catch (e) {
+          debugPrint('syncNotifications failed: $e');
+        }
+        try {
+          await widget.nativeBridge.refreshWidgets();
+        } catch (e) {
+          debugPrint('refreshWidgets failed: $e');
+        }
+      } while (_syncAgain && mounted);
+    } finally {
+      _syncing = false;
+    }
+  }
+
+  /// Shows [updated] immediately and saves it after any earlier writes.
+  ///
+  /// Returns whether this write reached disk. If the newest write fails the
+  /// list falls back to the last saved state and a single SnackBar is shown;
+  /// failures of writes that were already superseded are left to the newer
+  /// write, which saves the complete list again.
+  Future<bool> _persistItems(List<DdayItem> updated) async {
+    final seq = ++_writeSeq;
     setState(() {
       _items = updated;
     });
-    await widget.store.saveItems(updated);
-    await widget.nativeBridge.syncNotifications();
-    await widget.nativeBridge.refreshWidgets();
+
+    final done = Completer<bool>();
+    _writeChain = _writeChain.then((_) async {
+      var ok = false;
+      try {
+        await widget.store.saveItems(updated);
+        ok = true;
+      } catch (e) {
+        debugPrint('saveItems failed: $e');
+      }
+      if (ok) {
+        _lastPersistedItems = updated;
+      } else if (seq == _writeSeq && mounted) {
+        setState(() {
+          _items = _lastPersistedItems;
+        });
+        showAppSnackBar(context, storageWriteFailedMessage);
+      }
+      done.complete(ok);
+    });
+
+    final ok = await done.future;
+    if (ok) {
+      unawaited(_syncNativeBestEffort());
+      unawaited(_cleanupBackgroundsBestEffort());
+    }
+    return ok;
   }
 
   Future<void> _changeSortMode(DdaySortMode mode) async {
     if (_sortMode == mode) return;
+    final previous = _sortMode;
     setState(() {
       _sortMode = mode;
     });
-    await widget.store.saveSortMode(mode);
-    await widget.nativeBridge.syncNotifications();
-    await widget.nativeBridge.refreshWidgets();
+    try {
+      await widget.store.saveSortMode(mode);
+    } on StorageWriteException {
+      if (!mounted) return;
+      setState(() {
+        _sortMode = previous;
+      });
+      showAppSnackBar(context, storageWriteFailedMessage);
+      return;
+    }
+    unawaited(_syncNativeBestEffort());
+  }
+
+  Future<void> _copyRecoveryRaw() async {
+    final raw = _recoveryRaw;
+    if (raw == null) return;
+    await Clipboard.setData(ClipboardData(text: raw));
+    if (!mounted) return;
+    showAppSnackBar(context, '已複製原始內容，可貼到記事本保存');
+  }
+
+  Future<void> _acknowledgeRecovery() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('清除另存的原始內容？'),
+        content: const Text('清除後將無法再取回原始內容，確定已保存？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            key: const Key('recovery_confirm_clear'),
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('確定清除'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    // Rewrite the readable items first so the damaged text is gone from the
+    // main key; otherwise the next launch would flag it again.
+    final saved = await _persistItems(_items);
+    if (!saved || !mounted) return;
+    try {
+      await widget.store.clearRecoveryRaw();
+    } on StorageWriteException {
+      if (!mounted) return;
+      showAppSnackBar(context, storageWriteFailedMessage);
+      return;
+    }
+    if (!mounted) return;
+    setState(() {
+      _recoveryRaw = null;
+    });
   }
 
   Future<void> _openSettings() async {
@@ -125,6 +313,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           backupService: widget.backupService,
           fileChannel: widget.fileChannel,
           clock: widget.clock,
+          updateFlow: _updateFlow,
         ),
       ),
     );
@@ -150,6 +339,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         builder: (_) => EditScreen(
           initialItem: item,
           clock: widget.clock,
+          nativeBridge: widget.nativeBridge,
         ),
       ),
     );
@@ -179,29 +369,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _confirmAndDelete(DdayItem item) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('刪除 D-Day'),
-        content: Text('確定要刪除「${item.title}」嗎？此動作無法復原。'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            style: FilledButton.styleFrom(
-              backgroundColor: Theme.of(context).colorScheme.error,
-              foregroundColor: Theme.of(context).colorScheme.onError,
-            ),
-            child: const Text('刪除'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed == true && mounted) {
+    final confirmed = await showDeleteConfirmDialog(context, item.title);
+    if (confirmed && mounted) {
       final updated = _items.where((e) => e.id != item.id).toList();
       await _persistItems(updated);
     }
@@ -248,11 +417,32 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
+  /// Sorted card data, recomputed only when items, sort mode or day change.
+  List<DdayCardData> _viewModels(DateTime now) {
+    final day = localToday(now);
+    final cached = _cache;
+    if (cached != null &&
+        identical(_cacheItems, _items) &&
+        _cacheSortMode == _sortMode &&
+        _cacheDay == day) {
+      return cached;
+    }
+    HomeScreen.debugViewModelBuildCount++;
+    final sorted = sortDdays(_items, _sortMode, today: day);
+    final models = <DdayCardData>[
+      for (final item in sorted) DdayCardData.fromItem(item, day),
+    ];
+    _cache = models;
+    _cacheItems = _items;
+    _cacheSortMode = _sortMode;
+    _cacheDay = day;
+    return models;
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final now = widget.clock();
-    final sorted = sortDdays(_items, _sortMode, today: now);
+    final models = _viewModels(widget.clock());
 
     return Scaffold(
       appBar: AppBar(
@@ -261,40 +451,39 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           PopupMenuButton<ThemeMode>(
             key: const Key('theme_menu_button'),
             tooltip: '外觀主題',
-            icon: Icon(
-              switch (widget.themeMode) {
-                ThemeMode.light => Icons.light_mode_outlined,
-                ThemeMode.dark => Icons.dark_mode_outlined,
-                ThemeMode.system => Icons.brightness_auto_outlined,
-              },
-            ),
+            icon: Icon(switch (widget.themeMode) {
+              ThemeMode.light => Icons.light_mode_outlined,
+              ThemeMode.dark => Icons.dark_mode_outlined,
+              ThemeMode.system => Icons.brightness_auto_outlined,
+            }),
             initialValue: widget.themeMode,
             onSelected: (mode) {
               widget.onThemeModeChanged?.call(mode);
             },
-            itemBuilder: (context) => [
-              (ThemeMode.system, '跟隨系統', 'system'),
-              (ThemeMode.light, '淺色模式', 'light'),
-              (ThemeMode.dark, '深色模式', 'dark'),
-            ]
-                .map(
-                  (entry) => PopupMenuItem<ThemeMode>(
-                    key: Key('theme_option_${entry.$3}'),
-                    value: entry.$1,
-                    child: Row(
-                      children: [
-                        Icon(
-                          widget.themeMode == entry.$1 ? Icons.check : null,
-                          size: 18,
-                          color: theme.colorScheme.primary,
+            itemBuilder: (context) =>
+                [
+                      (ThemeMode.system, '跟隨系統', 'system'),
+                      (ThemeMode.light, '淺色模式', 'light'),
+                      (ThemeMode.dark, '深色模式', 'dark'),
+                    ]
+                    .map(
+                      (entry) => PopupMenuItem<ThemeMode>(
+                        key: Key('theme_option_${entry.$3}'),
+                        value: entry.$1,
+                        child: Row(
+                          children: [
+                            Icon(
+                              widget.themeMode == entry.$1 ? Icons.check : null,
+                              size: 18,
+                              color: theme.colorScheme.primary,
+                            ),
+                            const SizedBox(width: 8),
+                            Text(entry.$2),
+                          ],
                         ),
-                        const SizedBox(width: 8),
-                        Text(entry.$2),
-                      ],
-                    ),
-                  ),
-                )
-                .toList(),
+                      ),
+                    )
+                    .toList(),
           ),
           IconButton(
             key: const Key('backup_button'),
@@ -339,176 +528,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       body: SafeArea(
         child: _loading
             ? const Center(child: CircularProgressIndicator())
-            : sorted.isEmpty
-                ? Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(32),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            Icons.event_note_outlined,
-                            size: 64,
-                            color: theme.colorScheme.outline,
-                          ),
-                          const SizedBox(height: 16),
-                          Text(
-                            '還沒有 D-Day',
-                            style: theme.textTheme.titleMedium,
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            '點擊右下角 ＋ 新增第一個重要日子',
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              color: theme.colorScheme.onSurfaceVariant,
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
-                        ],
-                      ),
-                    ),
-                  )
-                : ListView.separated(
-                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
-                    itemCount: sorted.length,
-                    separatorBuilder: (_, _) => const SizedBox(height: 10),
-                    itemBuilder: (context, index) {
-                      final item = sorted[index];
-                      final badge = formatCountdown(item, today: now);
-                      final diff = effectiveDayDiff(item, today: now);
-                      final isToday = diff == 0 && !item.countFromOne;
-                      final displayDate = formatDisplayDateZh(
-                        effectiveTargetDate(item, today: now),
-                      );
-                      final repeatNote = anniversarySubtitle(item, today: now);
-                      final colors = DdayColors.byKey(item.colorKey).resolve(
-                        theme.colorScheme,
-                        isPinned: item.pinned,
-                        isToday: isToday,
-                      );
-
-                      return Card(
-                        key: Key('dday_card_${item.id}'),
-                        elevation: 0,
-                        color: colors.cardBackground,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(16),
-                          side: BorderSide(color: colors.borderColor),
-                        ),
-                        child: InkWell(
-                          borderRadius: BorderRadius.circular(16),
-                          onTap: () => _openEditor(item),
-                          onLongPress: () => _showItemActions(item),
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 14,
-                            ),
-                            child: Row(
-                              children: [
-                                if (item.colorKey != null) ...[
-                                  Container(
-                                    width: 4,
-                                    height: 40,
-                                    decoration: BoxDecoration(
-                                      color: colors.accentColor,
-                                      borderRadius: BorderRadius.circular(4),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 12),
-                                ],
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Row(
-                                        children: [
-                                          if (item.pinned) ...[
-                                            Icon(
-                                              Icons.push_pin,
-                                              size: 16,
-                                              color: colors.accentColor,
-                                            ),
-                                            const SizedBox(width: 6),
-                                          ],
-                                          Expanded(
-                                            child: Text(
-                                              item.title,
-                                              style: theme.textTheme.titleMedium
-                                                  ?.copyWith(
-                                                fontWeight: FontWeight.w600,
-                                              ),
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                      const SizedBox(height: 4),
-                                      Row(
-                                        children: [
-                                          if (item.repeatYearly) ...[
-                                            Icon(
-                                              Icons.repeat,
-                                              size: 14,
-                                              color: colors.accentColor,
-                                            ),
-                                            const SizedBox(width: 4),
-                                          ],
-                                          if (item.reminderDaysBefore.isNotEmpty) ...[
-                                            Icon(
-                                              Icons.notifications_active_outlined,
-                                              size: 14,
-                                              color: colors.accentColor,
-                                            ),
-                                            const SizedBox(width: 4),
-                                          ],
-                                          Flexible(
-                                            child: Text(
-                                              repeatNote == null
-                                                  ? displayDate
-                                                  : '$displayDate・$repeatNote',
-                                              style: theme.textTheme.bodySmall
-                                                  ?.copyWith(
-                                                color: theme.colorScheme
-                                                    .onSurfaceVariant,
-                                              ),
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 12,
-                                    vertical: 8,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: colors.badgeBackground,
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  child: Text(
-                                    badge,
-                                    style:
-                                        theme.textTheme.titleMedium?.copyWith(
-                                      fontWeight: FontWeight.bold,
-                                      color: colors.badgeForeground,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      );
-                    },
+            : Column(
+                children: [
+                  if (_recoveryRaw != null) _buildRecoveryBanner(),
+                  Expanded(
+                    child: models.isEmpty
+                        ? _buildEmptyState(theme)
+                        : _buildList(theme, models),
                   ),
+                ],
+              ),
       ),
       floatingActionButton: FloatingActionButton(
         key: const Key('fab_add'),
@@ -516,6 +545,121 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         onPressed: () => _openEditor(),
         child: const Icon(Icons.add),
       ),
+    );
+  }
+
+  Widget _buildRecoveryBanner() {
+    return MaterialBanner(
+      key: const Key('recovery_banner'),
+      leading: const Icon(Icons.warning_amber_rounded),
+      content: const Text('有資料讀取失敗，原始內容已另存。'),
+      actions: [
+        TextButton(
+          key: const Key('recovery_copy'),
+          onPressed: _copyRecoveryRaw,
+          child: const Text('複製原始內容'),
+        ),
+        TextButton(
+          key: const Key('recovery_dismiss'),
+          onPressed: _acknowledgeRecovery,
+          child: const Text('知道了'),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildEmptyState(ThemeData theme) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.event_note_outlined,
+              size: 64,
+              color: theme.colorScheme.outline,
+            ),
+            const SizedBox(height: 16),
+            Text('還沒有 D-Day', style: theme.textTheme.titleMedium),
+            const SizedBox(height: 8),
+            Text(
+              '點擊右下角 ＋ 新增第一個重要日子',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildList(ThemeData theme, List<DdayCardData> models) {
+    // Items without a photo share grouped white cards with divided rows; an
+    // item with a photo becomes its own photo card. Sort order is preserved.
+    // Every item sits in a slot keyed by its position, so when sorting moves
+    // an item its row is rebuilt with fresh gesture recognizers instead of
+    // carrying over the state of the long-press that opened the menu.
+    final children = <Widget>[];
+    var group = <Widget>[];
+    var groupStart = 0;
+
+    void flushGroup() {
+      if (group.isEmpty) return;
+      if (children.isNotEmpty) children.add(const SizedBox(height: 12));
+      children.add(
+        SoftCard(
+          key: ValueKey<String>('group_$groupStart'),
+          radius: 20,
+          child: Column(children: group),
+        ),
+      );
+      group = <Widget>[];
+    }
+
+    for (var i = 0; i < models.length; i++) {
+      final model = models[i];
+      final item = model.item;
+      final card = KeyedSubtree(
+        key: ValueKey<int>(i),
+        child: DdayCard(
+          key: Key('dday_card_${item.id}'),
+          variant: DdayCardVariant.list,
+          title: item.title,
+          subtitle: model.subtitle,
+          badge: model.badge,
+          colors: DdayColors.byKey(item.colorKey).resolve(theme.colorScheme),
+          iconKey: item.iconKey,
+          photo: model.photo,
+          pinned: item.pinned,
+          highlighted: model.isToday,
+          repeatYearly: item.repeatYearly,
+          hasReminders: item.reminderDaysBefore.isNotEmpty,
+          onTap: () => _openEditor(item),
+          onLongPress: () => _showItemActions(item),
+        ),
+      );
+
+      if (model.photo != null) {
+        flushGroup();
+        if (children.isNotEmpty) children.add(const SizedBox(height: 12));
+        children.add(card);
+      } else {
+        if (group.isEmpty) {
+          groupStart = i;
+        } else {
+          group.add(const Divider(indent: 68, endIndent: 16));
+        }
+        group.add(card);
+      }
+    }
+    flushGroup();
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
+      children: children,
     );
   }
 }

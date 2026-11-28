@@ -4,6 +4,8 @@ import 'package:flutter/services.dart';
 import '../data/backup_service.dart';
 import '../models/dday.dart';
 import '../utils/day_calc.dart';
+import '../widgets/soft_card.dart';
+import '../widgets/section_header.dart';
 
 class BackupScreen extends StatefulWidget {
   const BackupScreen({
@@ -16,7 +18,7 @@ class BackupScreen extends StatefulWidget {
   }) : clock = clock ?? DateTime.now;
 
   final List<DdayItem> initialItems;
-  final Future<void> Function(List<DdayItem> items) onSaveItems;
+  final Future<bool> Function(List<DdayItem> items) onSaveItems;
   final BackupService backupService;
   final BackupFileChannel fileChannel;
   final DateTime Function() clock;
@@ -86,7 +88,6 @@ class _BackupScreenState extends State<BackupScreen> {
       raw = await widget.fileChannel.importJsonFile();
     } catch (e) {
       _showSnack('讀取檔案失敗：$e');
-      if (mounted) setState(() => _busy = false);
       return;
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -169,8 +170,9 @@ class _BackupScreenState extends State<BackupScreen> {
       parsed.items,
       mode,
     );
-    await widget.onSaveItems(applied.items);
-    if (!mounted) return;
+    // On failure the home screen already restored its list and told the user.
+    final saved = await widget.onSaveItems(applied.items);
+    if (!saved || !mounted) return;
 
     setState(() {
       _items = applied.items;
@@ -189,9 +191,7 @@ class _BackupScreenState extends State<BackupScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('備份與還原'),
-      ),
+      appBar: AppBar(title: const Text('備份與還原')),
       body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.all(16),
@@ -202,31 +202,18 @@ class _BackupScreenState extends State<BackupScreen> {
               child: ListTile(
                 leading: const Icon(Icons.inventory_2_outlined),
                 title: Text('目前共有 ${_items.length} 筆 D-Day'),
-                subtitle: const Text('備份為純文字 JSON 格式（schemaVersion: 1），完全離線操作'),
               ),
             ),
             const SizedBox(height: 20),
-            Text(
-              '匯出備份',
-              style: theme.textTheme.titleSmall?.copyWith(
-                color: theme.colorScheme.primary,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
+            const SectionHeader('匯出備份'),
             const SizedBox(height: 8),
-            Card(
-              elevation: 0,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-                side: BorderSide(color: theme.colorScheme.outlineVariant),
-              ),
+            SoftCard(
               child: Column(
                 children: [
                   ListTile(
                     key: const Key('export_file_button'),
                     leading: const Icon(Icons.save_alt),
                     title: const Text('匯出至檔案 (.json)'),
-                    subtitle: const Text('使用系統檔案總管選擇儲存位置'),
                     onTap: _busy ? null : _exportToFile,
                   ),
                   const Divider(height: 1),
@@ -234,34 +221,21 @@ class _BackupScreenState extends State<BackupScreen> {
                     key: const Key('export_clipboard_button'),
                     leading: const Icon(Icons.copy_all_outlined),
                     title: const Text('複製備份 JSON'),
-                    subtitle: const Text('將完整備份文字複製到剪貼簿'),
                     onTap: _busy ? null : _copyToClipboard,
                   ),
                 ],
               ),
             ),
             const SizedBox(height: 20),
-            Text(
-              '匯入還原',
-              style: theme.textTheme.titleSmall?.copyWith(
-                color: theme.colorScheme.primary,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
+            const SectionHeader('匯入還原'),
             const SizedBox(height: 8),
-            Card(
-              elevation: 0,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-                side: BorderSide(color: theme.colorScheme.outlineVariant),
-              ),
+            SoftCard(
               child: Column(
                 children: [
                   ListTile(
                     key: const Key('import_file_button'),
                     leading: const Icon(Icons.file_open_outlined),
                     title: const Text('從檔案匯入 (.json)'),
-                    subtitle: const Text('選擇先前回存的 JSON 備份檔'),
                     onTap: _busy ? null : _importFromFile,
                   ),
                   const Divider(height: 1),
@@ -269,7 +243,6 @@ class _BackupScreenState extends State<BackupScreen> {
                     key: const Key('import_paste_button'),
                     leading: const Icon(Icons.paste_outlined),
                     title: const Text('貼上備份 JSON 匯入'),
-                    subtitle: const Text('直接貼上複製的 JSON 文字還原'),
                     onTap: _busy ? null : _importFromPaste,
                   ),
                 ],

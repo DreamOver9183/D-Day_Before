@@ -1,6 +1,6 @@
 # D-Day Before（輕量版）
 
-自用、輕量、完全離線的 Android D-Day 日期倒數 APP，使用 Flutter + Material 3 打造，不要求任何網路權限、無帳號、無廣告。
+自用、輕量的 Android D-Day 日期倒數 APP，使用 Flutter + Material 3 打造，資料只存在手機本機、無帳號、無廣告。唯一的網路連線是向本專案的 GitHub Releases 檢查 APP 更新（可在設定中關閉自動檢查），不會傳送任何個人資料。
 
 ## 主要功能
 
@@ -10,6 +10,20 @@
 - **外觀自訂（v0.4）**：每張 D-Day 卡片可自訂 9 種配色，支援跟隨系統／淺色／深色主題。
 - **提醒通知（v0.5）**：每筆可設當天／前 1／3／7 天提醒與自訂提醒時間、通知列常駐顯示，並於重開機後自動重建排程。
 - **桌面小工具（v0.6）**：Android 原生主畫面 Widget，直接讀取本機 XML `SharedPreferences` 並跨午夜自動更新。
+
+- **外觀與照片（v1.0.1）**：珊瑚紅主題與白色卡片、12 種分類圖示、每筆可設背景照片（照片僅存本機，不含在 JSON 備份）、「模式設定」整合紀念日／每年重複、桌面小工具底部文字橫幅。
+- **APP 內更新（v1.0.1）**：每天最多自動檢查一次 GitHub Releases，或在設定按「檢查更新」；下載後驗證 SHA-256，再交給 Android 安裝程式（首次需允許「安裝不明應用程式」）。
+
+## 發佈更新
+
+更新以 GitHub Release 發佈，每個 Release 附上 APK 與 `update.json`（`versionCode`、`versionName`、`apk`、`sha256`）。在乾淨且已 commit 的工作目錄執行：
+
+```powershell
+# 版本號 patch +1、versionCode +1，提交並推送後建置與發佈
+powershell -ExecutionPolicy Bypass -File .\tool\release.ps1 -Bump -Notes "這次更新的內容"
+```
+
+腳本會檢查 `android/key.properties`（必須用同一把正式金鑰簽章，手機才能覆蓋更新）、執行 `flutter analyze` 與 `flutter test`、建置 release APK、計算 SHA-256 並用 `gh release create` 發佈。**請務必備份 keystore 與 `key.properties`，遺失後將無法再發佈可覆蓋安裝的更新。**
 
 ## 開發與測試
 

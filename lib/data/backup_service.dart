@@ -4,10 +4,7 @@ import 'package:flutter/services.dart';
 
 import '../models/dday.dart';
 
-enum BackupImportMode {
-  merge,
-  overwrite,
-}
+enum BackupImportMode { merge, overwrite }
 
 class BackupFormatException implements Exception {
   const BackupFormatException(this.message);
@@ -51,17 +48,15 @@ abstract class BackupFileChannel {
 class MethodChannelBackupFileChannel implements BackupFileChannel {
   const MethodChannelBackupFileChannel();
 
-  static const MethodChannel _channel =
-      MethodChannel('com.cytsa.dday_before/native');
+  static const MethodChannel _channel = MethodChannel(
+    'com.cytsa.dday_before/native',
+  );
 
   @override
   Future<bool> exportJsonFile(String filename, String content) async {
     final result = await _channel.invokeMethod<bool>(
       'exportJsonFile',
-      <String, dynamic>{
-        'filename': filename,
-        'content': content,
-      },
+      <String, dynamic>{'filename': filename, 'content': content},
     );
     return result ?? false;
   }

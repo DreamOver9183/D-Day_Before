@@ -49,3 +49,6 @@ android/key.properties
 *.jks
 *.keystore
 *.apk
+
+# Golden test failure output
+test/golden/failures/
